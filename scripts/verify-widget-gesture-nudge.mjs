@@ -285,7 +285,11 @@ async function verifyHandoffGeometryAndEscape() {
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
     const midAfter = await handoffDetails(page);
     const pointerDelta = midAfter.rect.left - midBefore.rect.left;
-    assert.ok(pointerDelta > 18 && pointerDelta < 22, `the lifted widget follows later pointer movement smoothly while the handoff is paused (moved ${pointerDelta.toFixed(2)}px)`);
+    assert.ok(pointerDelta > 0.1 && pointerDelta < 20, `the lifted widget starts following later pointer movement while the handoff is paused, with a bounded spring response (moved ${pointerDelta.toFixed(2)}px)`);
+    await page.waitForTimeout(450);
+    const caughtUp = await handoffDetails(page);
+    assert.ok(Math.abs(caughtUp.rect.left - (midBefore.rect.left + 20)) < 1.5, "the paused handoff follower catches up to the latest pointer after it stops");
+    assert.ok(Math.abs(caughtUp.rect.top - midBefore.rect.top) < 1.5, "horizontal pointer movement does not disturb the vertical handoff position");
     await page.screenshot({ path: resolve(screenshotDir, "handoff-mid-move.png") });
     await setHandoffTime(page, 120);
     const later = await handoffDetails(page);

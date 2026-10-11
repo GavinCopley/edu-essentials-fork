@@ -6,6 +6,7 @@ import type { WidgetInstance } from "../lib/workspace-codec";
 import { calculateWidgetUnit } from "./animated-widget-grid";
 import AnimatedWidgetGrid from "./animated-widget-grid";
 import { getWidgetInsertionCandidate, reorderWidgetIds } from "../lib/widget-reorder";
+import { stepWidgetDragMotion, type WidgetDragMotion } from "../lib/widget-drag-motion";
 import { useWidgetShake, type WidgetShakePreviewBounds } from "./use-widget-shake";
 import { useWidgetResize } from "./use-widget-resize";
 import { useWidgetDoubleTap } from "./use-widget-double-tap";
@@ -56,12 +57,16 @@ type DragSession = {
   startY: number;
   latestX: number;
   latestY: number;
+  projectionDirty: boolean;
   grabOffsetX: number;
   grabOffsetY: number;
   previewBounds: WidgetShakePreviewBounds | null;
   overlay: HTMLDivElement | null;
   overlayCard: HTMLElement | null;
   frame: number | null;
+  followerEnabled: boolean;
+  follower: WidgetDragMotion | null;
+  followerTime: number | null;
   listeners: {
     pointerMove: (event: PointerEvent) => void;
     pointerUp: (event: PointerEvent) => void;
@@ -182,7 +187,7 @@ export default function ReorderableWidgetGrid({
   const sessionRef = useRef<DragSession | null>(null);
   const boardScrollOffsets = useRef(new Map<HTMLElement, { top: number; left: number }>());
   const fadingOverlays = useRef(new Map<HTMLDivElement, Animation>());
-  const processPointerRef = useRef<(session: DragSession) => void>(() => undefined);
+  const processPointerRef = useRef<(session: DragSession, timestamp: number) => void>(() => undefined);
   const latestProps = useRef({ workspaceId, layoutKey, enabled, items, onReorder, onReorderStart, removeTargetRef, onRemove, onRemoveDragStateChange });
 
   const ids = items.map((item) => item.instanceId);
@@ -315,10 +320,27 @@ export default function ReorderableWidgetGrid({
     : resizePriorities;
   const gridLayoutKey = `${layoutKey}:${orderedItems.map((item) => `${item.instanceId}:${item.size}:${Boolean(item.startsNewMiniBlock)}`).join(",")}:${JSON.stringify(activeResizePriorities ?? [])}`;
 
-  const positionOverlay = useCallback((session: DragSession) => {
-    if (!session.overlay) return;
-    session.overlay.style.left = `${session.latestX - session.grabOffsetX}px`;
-    session.overlay.style.top = `${session.latestY - session.grabOffsetY}px`;
+  const positionOverlay = useCallback((session: DragSession, timestamp: number) => {
+    if (!session.overlay) return false;
+    const targetLeft = session.latestX - session.grabOffsetX;
+    const targetTop = session.latestY - session.grabOffsetY;
+    if (!session.followerEnabled || !session.follower) {
+      session.overlay.style.left = `${targetLeft}px`;
+      session.overlay.style.top = `${targetTop}px`;
+      return false;
+    }
+
+    if (session.followerTime === null) {
+      session.followerTime = timestamp;
+    } else {
+      const elapsedSeconds = Math.max(0, (timestamp - session.followerTime) / 1000);
+      session.followerTime = timestamp;
+      session.follower = stepWidgetDragMotion(session.follower, targetLeft, targetTop, elapsedSeconds);
+    }
+
+    session.overlay.style.left = `${session.follower.left}px`;
+    session.overlay.style.top = `${session.follower.top}px`;
+    return !session.follower.settled;
   }, []);
 
   const updateProjection = useCallback((session: DragSession) => {
@@ -393,7 +415,7 @@ export default function ReorderableWidgetGrid({
     setPreviewMiniStart(insertion.startsNewMiniBlock);
   }, [updateRemoveTargetState]);
 
-  const processPointer = useCallback((session: DragSession) => {
+  const processPointer = useCallback((session: DragSession, timestamp = window.performance.now()) => {
     if (session.phase !== "active") return;
     const edge = 54;
     const viewportHeight = window.innerHeight;
@@ -403,12 +425,15 @@ export default function ReorderableWidgetGrid({
     } else if (session.latestY > viewportHeight - edge) {
       window.scrollBy(0, Math.ceil(Math.min(22, (session.latestY - (viewportHeight - edge)) * 0.28)));
     }
-    positionOverlay(session);
-    updateProjection(session);
-    if (nearEdge && session.frame === null) {
-      session.frame = window.requestAnimationFrame(() => {
+    const followerUnsettled = positionOverlay(session, timestamp);
+    if (session.projectionDirty || nearEdge) {
+      session.projectionDirty = false;
+      updateProjection(session);
+    }
+    if ((nearEdge || followerUnsettled) && session.frame === null) {
+      session.frame = window.requestAnimationFrame((nextTimestamp) => {
         session.frame = null;
-        if (sessionRef.current === session && session.phase === "active") processPointerRef.current(session);
+        if (sessionRef.current === session && session.phase === "active") processPointerRef.current(session, nextTimestamp);
       });
     }
   }, [positionOverlay, updateProjection]);
@@ -419,9 +444,9 @@ export default function ReorderableWidgetGrid({
 
   const schedulePointer = useCallback((session: DragSession) => {
     if (session.frame !== null) return;
-    session.frame = window.requestAnimationFrame(() => {
+    session.frame = window.requestAnimationFrame((timestamp) => {
       session.frame = null;
-      processPointer(session);
+      processPointer(session, timestamp);
     });
   }, [processPointer]);
 
@@ -462,9 +487,6 @@ export default function ReorderableWidgetGrid({
     clone.style.removeProperty("--widget-shake-y");
     clone.style.removeProperty("--widget-shake-duration");
     const reduced = prefersReducedMotion();
-    const canAnimateHandoff = Boolean(session.previewBounds && !reduced
-      && typeof overlay.animate === "function" && typeof clone.animate === "function");
-    if (canAnimateHandoff) clone.classList.add("widget-reorder-shake-lift");
     clone.querySelectorAll(".widget-menu").forEach((menu) => menu.remove());
     clone.style.gridColumn = "auto";
     clone.style.gridRow = "auto";
@@ -488,48 +510,56 @@ export default function ReorderableWidgetGrid({
     session.overlay = overlay;
     session.overlayCard = clone;
     session.phase = "active";
+    const configuredDuration = Number.parseFloat(window.getComputedStyle(clone).getPropertyValue("--wa-transition-ms"));
+    const handoffDuration = Number.isFinite(configuredDuration) ? Math.max(0, Math.min(180, configuredDuration)) : 180;
+    session.followerEnabled = Boolean(!reduced && handoffDuration > 0
+      && typeof overlay.animate === "function" && typeof clone.animate === "function");
+    if (session.previewBounds && session.followerEnabled) clone.classList.add("widget-reorder-shake-lift");
+    session.follower = {
+      left: desiredLeft,
+      top: desiredTop,
+      velocityX: 0,
+      velocityY: 0,
+      settled: true,
+    };
+    session.followerTime = null;
+    session.projectionDirty = true;
     updateRemoveTargetState(session, true, false);
     setIsReorderSettling(false);
-    positionOverlay(session);
-    if (canAnimateHandoff) {
-      const configuredDuration = Number.parseFloat(window.getComputedStyle(clone).getPropertyValue("--wa-transition-ms"));
-      const duration = Number.isFinite(configuredDuration) ? Math.max(0, Math.min(180, configuredDuration)) : 180;
-      if (duration === 0) {
-        clone.classList.remove("widget-reorder-shake-lift");
-      } else {
-        const trackHandoffAnimation = (animation: Animation, onFinish?: () => void) => {
-          session.animations.add(animation);
-          session.handoffAnimations.add(animation);
-          const removeAnimation = () => {
-            session.animations.delete(animation);
-            session.handoffAnimations.delete(animation);
-            if (session.handoffCardAnimation === animation) session.handoffCardAnimation = null;
-          };
-          animation.onfinish = () => {
-            onFinish?.();
-            removeAnimation();
-            animation.onfinish = null;
-            animation.oncancel = null;
-            animation.cancel();
-          };
-          animation.oncancel = removeAnimation;
+    positionOverlay(session, window.performance.now());
+    if (session.previewBounds && session.followerEnabled) {
+      const trackHandoffAnimation = (animation: Animation, onFinish?: () => void) => {
+        session.animations.add(animation);
+        session.handoffAnimations.add(animation);
+        const removeAnimation = () => {
+          session.animations.delete(animation);
+          session.handoffAnimations.delete(animation);
+          if (session.handoffCardAnimation === animation) session.handoffCardAnimation = null;
         };
-        const offsetX = rect.left - desiredLeft;
-        const offsetY = rect.top - desiredTop;
-        if (offsetX || offsetY) {
-          const positionAnimation = overlay.animate([
-            { transform: `translate3d(${offsetX}px, ${offsetY}px, 0)` },
-            { transform: "translate3d(0, 0, 0)" },
-          ], { duration, easing: "ease-out", fill: "both" });
-          trackHandoffAnimation(positionAnimation);
-        }
-        const scaleAnimation = clone.animate([
-          { transform: "scale(1)" },
-          { transform: "scale(1.025)" },
-        ], { duration, easing: "ease-out", fill: "forwards" });
-        session.handoffCardAnimation = scaleAnimation;
-        trackHandoffAnimation(scaleAnimation, () => clone.classList.remove("widget-reorder-shake-lift"));
+        animation.onfinish = () => {
+          onFinish?.();
+          removeAnimation();
+          animation.onfinish = null;
+          animation.oncancel = null;
+          animation.cancel();
+        };
+        animation.oncancel = removeAnimation;
+      };
+      const offsetX = rect.left - desiredLeft;
+      const offsetY = rect.top - desiredTop;
+      if (offsetX || offsetY) {
+        const positionAnimation = overlay.animate([
+          { transform: `translate3d(${offsetX}px, ${offsetY}px, 0)` },
+          { transform: "translate3d(0, 0, 0)" },
+        ], { duration: handoffDuration, easing: "ease-out", fill: "both" });
+        trackHandoffAnimation(positionAnimation);
       }
+      const scaleAnimation = clone.animate([
+        { transform: "scale(1)" },
+        { transform: "scale(1.025)" },
+      ], { duration: handoffDuration, easing: "ease-out", fill: "forwards" });
+      session.handoffCardAnimation = scaleAnimation;
+      trackHandoffAnimation(scaleAnimation, () => clone.classList.remove("widget-reorder-shake-lift"));
     }
     setDraggedId(session.draggedId);
     setPreviewMiniStart(session.currentMiniStart);
@@ -657,12 +687,16 @@ export default function ReorderableWidgetGrid({
       startY: event.clientY,
       latestX: activePointer?.clientX ?? event.clientX,
       latestY: activePointer?.clientY ?? event.clientY,
+      projectionDirty: false,
       grabOffsetX: event.clientX - rect.left,
       grabOffsetY: event.clientY - rect.top,
       previewBounds: previewBounds ?? null,
       overlay: null,
       overlayCard: null,
       frame: null,
+      followerEnabled: false,
+      follower: null,
+      followerTime: null,
       listeners: null,
       animations: new Set(),
       handoffAnimations: new Set(),
@@ -682,6 +716,8 @@ export default function ReorderableWidgetGrid({
       }
       if (session.phase === "active") {
         nativeEvent.preventDefault();
+        if (session.follower?.settled) session.followerTime = window.performance.now();
+        session.projectionDirty = true;
         schedulePointer(session);
       }
     };
@@ -696,9 +732,9 @@ export default function ReorderableWidgetGrid({
 
       if (session.frame !== null) window.cancelAnimationFrame(session.frame);
       session.frame = null;
-      processPointer(session);
-      if (session.frame !== null) window.cancelAnimationFrame(session.frame);
-      session.frame = null;
+      // Resolve the final cursor target without advancing the follower. The
+      // drop animation should start from the position the user last saw.
+      updateProjection(session);
       const current = latestProps.current;
       const currentIds = current.items.map((item) => item.instanceId);
       if (!session.valid
@@ -757,7 +793,10 @@ export default function ReorderableWidgetGrid({
     const blur = () => cancelSession(session, session.phase === "active");
     const resize = () => cancelSession(session, session.phase === "active");
     const scroll = () => {
-      if (sessionRef.current === session && session.phase === "active") schedulePointer(session);
+      if (sessionRef.current === session && session.phase === "active") {
+        session.projectionDirty = true;
+        schedulePointer(session);
+      }
     };
     const keyDown = (nativeEvent: KeyboardEvent) => {
       if (nativeEvent.key !== "Escape") return;
@@ -776,9 +815,12 @@ export default function ReorderableWidgetGrid({
     try { captureTarget.setPointerCapture(event.pointerId); } catch { /* Document listeners still track the pointer. */ }
     if (activePointer) {
       activateSession(session);
-      if (session.phase === "active") schedulePointer(session);
+      if (session.phase === "active") {
+        session.projectionDirty = true;
+        schedulePointer(session);
+      }
     }
-  }, [activateSession, cancelResize, cancelSession, itemData, items, layoutKey, processPointer, removePointerListeners, schedulePointer, updateRemoveTargetState, workspaceId]);
+  }, [activateSession, cancelResize, cancelSession, itemData, items, layoutKey, removePointerListeners, schedulePointer, updateProjection, updateRemoveTargetState, workspaceId]);
 
   const beginShake = useWidgetShake(`${workspaceId}:${layoutKey}:${itemData}`, !enabled && onCustomize ? (start, current, previewBounds) => {
     flushSync(() => onCustomize());
