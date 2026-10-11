@@ -100,8 +100,8 @@ html[data-motion="reduced"] .reference-ui .widget-card[data-widget-shake-preview
 
 .reference-ui .widget-card .widget-resize-handle {
   position: absolute;
-  right: -7px;
-  bottom: -7px;
+  right: calc(-1 * var(--desktop-density-unit, 1px) - var(--widget-resize-border-width, 1px));
+  bottom: calc(-1 * var(--desktop-density-unit, 1px) - var(--widget-resize-border-width, 1px));
   z-index: 4;
   display: grid;
   place-items: center;
@@ -118,18 +118,43 @@ html[data-motion="reduced"] .reference-ui .widget-card[data-widget-shake-preview
   -webkit-user-select: none;
 }
 
-.reference-ui .widget-resize-handle > span {
-  width: 13px;
-  height: 13px;
-  border-right: 3px solid currentColor;
-  border-bottom: 3px solid currentColor;
-  border-bottom-right-radius: 5px;
-  filter: drop-shadow(0 1px 2px #0008);
+.reference-ui .widget-resize-handle > svg {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: calc(var(--wa-radius, 14px) + 10 * var(--desktop-density-unit, 1px));
+  height: calc(var(--wa-radius, 14px) + 10 * var(--desktop-density-unit, 1px));
+  overflow: visible;
+  pointer-events: none;
+  transition: color 160ms ease, stroke-width 160ms ease;
 }
 
-.reference-ui .widget-resize-handle:hover,
-.reference-ui .widget-resize-handle:focus-visible {
-  background: color-mix(in srgb, var(--wa-accent, #7181ff) 18%, transparent);
+.reference-ui .widget-resize-handle > svg > path {
+  d: var(--widget-resize-rest-path);
+  transition: d 160ms ease;
+}
+
+.reference-ui .widget-resize-handle:is(:hover, :focus-visible) > svg,
+.reorderable-widget-grid.is-widget-resizing .widget-resizing .widget-resize-handle > svg {
+  stroke-width: 4.25;
+  color: color-mix(in srgb, var(--wa-accent, #7181ff) 75%, white);
+}
+
+.reference-ui .widget-resize-handle:is(:hover, :focus-visible) > svg > path,
+.reorderable-widget-grid.is-widget-resizing .widget-resizing .widget-resize-handle > svg > path {
+  d: var(--widget-resize-hover-path);
+}
+
+html[data-motion="reduced"] .reference-ui .widget-resize-handle > svg,
+html[data-motion="reduced"] .reference-ui .widget-resize-handle > svg > path {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reference-ui .widget-resize-handle > svg,
+  .reference-ui .widget-resize-handle > svg > path {
+    transition: none;
+  }
 }
 
 .reference-ui .widget-resize-handle:focus-visible {
@@ -166,10 +191,6 @@ html[data-motion="reduced"] .reference-ui .widget-card[data-widget-resize-live="
   .reference-ui .widget-card[data-widget-resize-live="true"] .widget-frame {
     filter: blur(0px);
   }
-}
-
-.reorderable-widget-grid.is-widget-resizing .widget-resizing .widget-resize-handle {
-  background: color-mix(in srgb, var(--wa-accent, #7181ff) 24%, transparent);
 }
 
 .widget-resize-status {

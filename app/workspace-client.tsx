@@ -1498,6 +1498,12 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   function renderWidget(widget: WidgetInstance, index: number, isDragged = false, isResizing = false) {
     const template = widgetTemplates.find((item) => item.type === widget.type)!;
     const appearance = resolveWidgetAppearance(extraData.widgetAppearance, widget.instanceId);
+    const resizeIndicatorSize = appearance.radius + 10;
+    const resizeIndicatorEdge = resizeIndicatorSize - 1.5;
+    const resizeIndicatorRadius = Math.max(0, appearance.radius - 0.5);
+    const resizeIndicatorCurve = `V ${resizeIndicatorEdge - resizeIndicatorRadius} A ${resizeIndicatorRadius} ${resizeIndicatorRadius} 0 0 1 ${resizeIndicatorEdge - resizeIndicatorRadius} ${resizeIndicatorEdge}`;
+    const resizeIndicatorPath = `M ${resizeIndicatorEdge} 1.5 ${resizeIndicatorCurve} H 1.5`;
+    const resizeIndicatorHoverPath = `M ${resizeIndicatorEdge} -2.5 ${resizeIndicatorCurve} H -2.5`;
     const TemplateIcon = widget.type === "today" ? BarChart3 : widget.type === "red-alerts" ? Bell : widget.type === "notes" ? FileText : template.icon;
     return (
       <article
@@ -1528,6 +1534,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         {widgetEditingEnabled && !isDragged && <button
           type="button"
           className="widget-resize-handle"
+          style={{ "--widget-resize-border-width": appearance.borderStyle === "none" ? "0px" : "var(--wa-border-width, 1px)" } as CSSProperties}
           data-widget-resize-handle
           aria-label={`Resize ${template.title}`}
           aria-describedby={`widget-resize-size-${widget.instanceId}`}
@@ -1541,7 +1548,12 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
             const nextSize = getWidgetKeyboardResizeSize(widget.size, event.key);
             if (nextSize !== widget.size) resizeWidget(widget.instanceId, nextSize);
           }}
-        ><span aria-hidden="true" /></button>}
+        ><svg aria-hidden="true" viewBox={`0 0 ${resizeIndicatorSize} ${resizeIndicatorSize}`} fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" style={{
+          "--widget-resize-rest-path": `path("${resizeIndicatorPath}")`,
+          "--widget-resize-hover-path": `path("${resizeIndicatorHoverPath}")`,
+        } as CSSProperties}>
+          <path d={resizeIndicatorPath} />
+        </svg></button>}
         {widgetEditingEnabled && !isDragged && <span id={`widget-resize-size-${widget.instanceId}`} className="widget-resize-status" role="status" aria-live="polite">
           {`${template.title} size: ${widgetSizeOptions.find((option) => option.value === widget.size)?.label}`}
         </span>}
