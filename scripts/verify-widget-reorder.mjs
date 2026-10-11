@@ -75,15 +75,15 @@ async function loadPage({ width = 1440, height = 1200, reducedMotion = "no-prefe
 async function liveIds(page) {
   return page.locator(".widget-grid > [data-widget-id]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-widget-id")));
 }
-async function beginMouseDrag(page, widgetId, destinationIndex) {
+async function beginMouseDrag(page, widgetId, destinationIndex, startSelector = ".widget-header h2") {
   const card = page.locator(`.widget-grid > [data-widget-id="${widgetId}"]`);
-  const handle = card.locator("[data-widget-reorder-handle]");
-  await handle.scrollIntoViewIfNeeded();
+  const dragTarget = card.locator(startSelector);
+  await dragTarget.scrollIntoViewIfNeeded();
   const cardBox = await card.boundingBox();
-  const handleBox = await handle.boundingBox();
-  assert.ok(cardBox && handleBox, `Expected visible widget handle for ${widgetId}`);
-  const startX = handleBox.x + handleBox.width / 2;
-  const startY = handleBox.y + handleBox.height / 2;
+  const targetBox = await dragTarget.boundingBox();
+  assert.ok(cardBox && targetBox, `Expected visible widget drag target for ${widgetId}`);
+  const startX = targetBox.x + targetBox.width / 2;
+  const startY = targetBox.y + targetBox.height / 2;
   const target = await page.evaluate(({ id, index, offsetX, offsetY }) => window.__widgetFixture.targetFor(id, index, offsetX, offsetY), {
     id: widgetId, index: destinationIndex, offsetX: startX - cardBox.x, offsetY: startY - cardBox.y,
   });
@@ -153,6 +153,49 @@ async function startMouseDragAt(page, target) {
 }
 async function beginMouseDragToPhysicalWidget(page, draggedId, targetId) {
   return startMouseDragAt(page, await physicalTarget(page, draggedId, targetId));
+}
+
+async function verifyMenuButtonGuard() {
+  const { context, page } = await loadPage();
+  try {
+    const before = await liveIds(page);
+    const writesBefore = await page.evaluate(() => window.__widgetFixture.writes);
+    const options = page.locator('.widget-grid > [data-widget-id="timer-main"] .widget-header .menu-wrap > button');
+    const box = await options.boundingBox();
+    assert.ok(box, "widget options button is visible");
+
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 28, box.y + box.height / 2 + 18, { steps: 3 });
+    await page.mouse.up();
+    assert.equal(await page.locator(".widget-reorder-overlay").count(), 0, "dragging from the options button does not start a widget drag");
+    assert.equal(await page.locator(".widget-menu").count(), 0, "dragging from the options button does not open its menu");
+    assert.deepEqual(await liveIds(page), before);
+    assert.equal(await page.evaluate(() => window.__widgetFixture.writes), writesBefore);
+
+    await options.click();
+    await page.waitForSelector(".widget-menu", { state: "visible" });
+    assert.equal(await page.locator(".widget-reorder-overlay").count(), 0, "opening the options menu does not start a widget drag");
+  } finally { await context.close(); }
+}
+
+async function verifyTitleAndPlainHeaderDrag() {
+  const { context, page } = await loadPage();
+  try {
+    const initial = await liveIds(page);
+    const initialWrites = await page.evaluate(() => window.__widgetFixture.writes);
+    const titleDrag = await beginMouseDrag(page, "notes-main", initial.length - 1);
+    await page.mouse.up();
+    await page.waitForFunction((count) => window.__widgetFixture.writes === count + 1, initialWrites);
+    assert.deepEqual(await liveIds(page), titleDrag.candidate, "dragging the widget title reorders the card");
+
+    const headerWrites = await page.evaluate(() => window.__widgetFixture.writes);
+    const headerDrag = await beginMouseDrag(page, "timer-main", 1, ".widget-header .widget-icon");
+    await page.mouse.up();
+    await page.waitForFunction((count) => window.__widgetFixture.writes === count + 1, headerWrites);
+    assert.deepEqual(await liveIds(page), headerDrag.candidate, "dragging an unmarked part of the header reorders the card");
+    console.log("Widget title and plain-header drag checks passed.");
+  } finally { await context.close(); }
 }
 async function startTouchDragAt(page, target) {
   const session = await page.context().newCDPSession(page);
@@ -439,6 +482,8 @@ async function verifyMiniResizeClearsPlacement({ reloadWhileSmall }) {
 }
 
 try {
+  await verifyMenuButtonGuard();
+  await verifyTitleAndPlainHeaderDrag();
   await verifyMetadataOnlyFreshMiniCommit();
   await verifyFreshMiniCellAndLowerHalfJoin();
   await verifyMiniResizeClearsPlacement({ reloadWhileSmall: false });
@@ -492,7 +537,7 @@ try {
     await page.waitForFunction((order) => [...document.querySelectorAll(".widget-grid > [data-widget-id]")].map((card) => card.getAttribute("data-widget-id")).join("|") === order.join("|"), before);
     await page.waitForFunction((top) => document.querySelector('.widget-grid [data-widget-id="notes-main"] textarea')?.scrollTop === top, scrollState.before);
     // Start a different widget immediately while the prior inert preview fades.
-    const redrag = await beginMouseDrag(page, "timer-main", 0);
+    const redrag = await beginMouseDrag(page, "timer-main", 0, ".widget-header .widget-icon");
     await page.mouse.up();
     await page.waitForFunction(() => window.__widgetFixture.writes === 1);
     await page.getByText("Workspace saved").waitFor();

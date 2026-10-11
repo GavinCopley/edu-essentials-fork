@@ -154,13 +154,13 @@ async function verifyMouseDoubleTapAndSingleTap() {
   } finally { await context.close(); }
 }
 
-async function verifyReorderHandlePointerTaps() {
+async function verifyTitlePointerTaps() {
   const { context, page } = await loadPage();
   try {
     await customize(page);
-    const handle = page.locator('.widget-grid > [data-widget-id="timer-main"] [data-widget-reorder-handle]');
-    await doubleTapMouse(page, handle);
-    await assertState(page, false, "the reorder handle is eligible for mouse double-tap completion");
+    const title = page.locator('.widget-grid > [data-widget-id="timer-main"] .widget-header h2');
+    await doubleTapMouse(page, title);
+    await assertState(page, false, "the plain widget title is eligible for mouse double-tap completion");
   } finally { await context.close(); }
 }
 
@@ -169,9 +169,9 @@ async function verifyTouchDoubleTap() {
   let session;
   try {
     await customize(page);
-    const handle = page.locator('.widget-grid > [data-widget-id="timer-main"] [data-widget-reorder-handle]');
-    await handle.scrollIntoViewIfNeeded();
-    const box = await handle.boundingBox();
+    const title = page.locator('.widget-grid > [data-widget-id="timer-main"] .widget-header h2');
+    await title.scrollIntoViewIfNeeded();
+    const box = await title.boundingBox();
     assert.ok(box && box.x >= 0 && box.y >= 0);
     const x = box.x + box.width / 2;
     const y = box.y + box.height / 2;
@@ -179,7 +179,7 @@ async function verifyTouchDoubleTap() {
     await tapTouch(session, x, y);
     await page.waitForTimeout(90);
     await tapTouch(session, x, y);
-    await assertState(page, false, "two touch taps on the reorder handle leave Customize");
+    await assertState(page, false, "two touch taps on the plain widget title leave Customize");
     assert.ok(await page.evaluate(() => window.__widgetFixture.pointerTypes.includes("touch")), "Chrome delivered touch PointerEvents");
   } finally {
     if (session) await session.detach();
@@ -193,10 +193,10 @@ async function verifyDragBreaksTapChain() {
     await customize(page);
     const card = page.locator('.widget-grid > [data-widget-id="timer-main"]');
     const heading = card.locator(".widget-header h2");
-    const handle = card.locator("[data-widget-reorder-handle]");
+    const title = card.locator(".widget-header h2");
     await tapMouse(page, heading);
-    await handle.scrollIntoViewIfNeeded();
-    const box = await handle.boundingBox();
+    await title.scrollIntoViewIfNeeded();
+    const box = await title.boundingBox();
     assert.ok(box);
     const x = box.x + box.width / 2;
     const y = box.y + box.height / 2;
@@ -226,6 +226,11 @@ async function verifyInteractiveTargetsAreExcluded() {
     await doubleTapMouse(page, nextWeek);
     await assertState(page, true, "double-tapping an interactive widget button does not leave Customize");
     assert.equal(await page.locator(".widget-reorder-overlay").count(), 0, "interactive controls do not begin a drag");
+
+    const options = page.locator('.widget-grid > [data-widget-id="timer-main"] .widget-header .menu-wrap > button');
+    await doubleTapMouse(page, options);
+    await assertState(page, true, "double-tapping the widget options button does not leave Customize");
+    assert.equal(await page.locator(".widget-reorder-overlay").count(), 0, "the widget options button does not begin a drag");
   } finally { await context.close(); }
 }
 
@@ -281,12 +286,12 @@ async function verifyDoubleTapAfterCompletedReorder() {
   try {
     await customize(page);
     const card = page.locator('.widget-grid > [data-widget-id="timer-main"]');
-    const handle = card.locator("[data-widget-reorder-handle]");
+    const title = card.locator(".widget-header h2");
     const cardBox = await card.boundingBox();
-    const handleBox = await handle.boundingBox();
-    assert.ok(cardBox && handleBox);
-    const startX = handleBox.x + handleBox.width / 2;
-    const startY = handleBox.y + handleBox.height / 2;
+    const titleBox = await title.boundingBox();
+    assert.ok(cardBox && titleBox);
+    const startX = titleBox.x + titleBox.width / 2;
+    const startY = titleBox.y + titleBox.height / 2;
     const target = await page.evaluate(({ offsetX, offsetY }) => window.__widgetFixture.targetFor("timer-main", 0, offsetX, offsetY), {
       offsetX: startX - cardBox.x,
       offsetY: startY - cardBox.y,
@@ -311,7 +316,7 @@ async function verifyDoubleTapAfterCompletedReorder() {
 try {
   await verifyInactiveDoesNotEnter();
   await verifyMouseDoubleTapAndSingleTap();
-  await verifyReorderHandlePointerTaps();
+  await verifyTitlePointerTaps();
   await verifyTouchDoubleTap();
   await verifyDragBreaksTapChain();
   await verifyInteractiveTargetsAreExcluded();

@@ -178,12 +178,8 @@
 .reference-ui .widget-header h2 { font-size: calc(12 * var(--ui-unit)); font-weight: 600; text-transform: none; letter-spacing: 0; }
 .reference-ui .widget-icon { width: calc(28 * var(--ui-unit)); height: calc(28 * var(--ui-unit)); border-radius: 50%; background: #172e62; color: #a0baff; }
 .reference-ui .widget-icon svg { width: calc(19 * var(--ui-unit)); height: calc(19 * var(--ui-unit)); }
-.reference-ui .widget-header .drag-handle { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; }
-.reference-ui .widget-header .drag-handle:focus-visible, .reference-ui.is-customizing .widget-header .drag-handle { position: static; clip-path: none; }
 .reference-ui .widget-header .mini { color: #9abcf4; width: calc(20 * var(--ui-unit)); height: calc(24 * var(--ui-unit)); padding: 0; }
 .reference-ui .widget-header .menu-wrap { margin-left: auto; }
-.reference-ui .widget-header .drag-handle:focus-visible,
-.reference-ui.is-customizing .widget-header .drag-handle,
 .reference-ui .widget-header .menu-wrap > .icon-button { width: calc(24 * var(--ui-unit)); height: calc(24 * var(--ui-unit)); border-radius: calc(6 * var(--ui-unit)); }
 .reference-ui .widget-header .widget-icon { background: #172e62; color: #a0baff; }
 .reference-ui .widget-red-alerts .widget-header .widget-icon { color: #eabb36; background: #2b2f2d; }

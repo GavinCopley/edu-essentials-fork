@@ -23,7 +23,6 @@ import {
   Flame,
   FolderOpen,
   GraduationCap,
-  GripVertical,
   House,
   LayoutGrid,
   List,
@@ -1548,8 +1547,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         <div className="widget-frame">
         <div className="widget-header">
           <span className={`widget-icon tone-${template.color}`}><TemplateIcon size={16} /></span>
-          <h2>{({ "daily-goal": "Daily Study Goal", today: "At a Glance", "red-alerts": "Alerts", pomodoro: "Pomodoro", "mini-calendar": "Mini Calendar", "task-completion": "Task Completion", notes: "Quick Notes" } as Record<string, string>)[widget.type] ?? template.title}</h2>
-          <button type="button" className="drag-handle icon-button mini" data-widget-reorder-handle aria-label={`Reorder ${template.title}`} draggable={false}><GripVertical size={16} /></button>
+          <h2 data-widget-reorder-handle>{({ "daily-goal": "Daily Study Goal", today: "At a Glance", "red-alerts": "Alerts", pomodoro: "Pomodoro", "mini-calendar": "Mini Calendar", "task-completion": "Task Completion", notes: "Quick Notes" } as Record<string, string>)[widget.type] ?? template.title}</h2>
           <div className="menu-wrap">
             <button className="icon-button mini" onClick={() => {
               if (openWidgetMenu === widget.instanceId && !closingWidgetMenu) dismissWidgetMenu();

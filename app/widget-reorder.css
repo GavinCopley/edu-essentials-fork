@@ -143,8 +143,7 @@ html[data-motion="reduced"] .reference-ui .today-remove-target-host.today-remove
   }
 }
 
-.reorderable-widget-grid.is-reorder-enabled .widget-header,
-.reorderable-widget-grid.is-reorder-enabled .drag-handle {
+.reorderable-widget-grid.is-reorder-enabled .widget-header {
   cursor: grab;
   touch-action: none;
   user-select: none;

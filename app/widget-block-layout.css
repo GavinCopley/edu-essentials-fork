@@ -83,17 +83,6 @@ html:has(.reference-ui) { scrollbar-gutter: stable; }
     z-index: 2;
     margin: 0;
   }
-  .reference-ui .widget-card .widget-header .drag-handle:focus-visible,
-  .reference-ui.is-customizing .widget-card .widget-header .drag-handle {
-    position: absolute;
-    inset-block-start: calc(24 * var(--desktop-density-unit, 1px));
-    inset-inline-end: 0;
-    z-index: 2;
-    clip-path: none;
-    width: calc(24 * var(--desktop-density-unit, 1px));
-    height: calc(24 * var(--desktop-density-unit, 1px));
-    margin: 0;
-  }
 }
 
 .reference-ui .widget-card .widget-header h2 {

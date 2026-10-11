@@ -1316,14 +1316,6 @@ kbd {
 html[data-theme="dark"] .tone-sky,
 html[data-theme="dark"] .tone-blue { background: #1d3546; color: #78c8ff; }
 
-.drag-handle {
-  display: grid;
-  margin-left: auto;
-  place-items: center;
-  color: var(--subtle);
-  cursor: grab;
-}
-
 .widget-menu {
   right: -3px;
   top: 34px;

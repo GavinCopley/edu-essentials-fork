@@ -1402,13 +1402,7 @@ try {
       if (width === 320) await page.screenshot({ path: resolve(screenshotDir, "phone-menu-hit-test-max.png") });
       assert.deepEqual(maximumMenuHits.options.map((item) => item.hitValue), sizeSequence, "320px mini card menu stays pointer reachable with maximum gap and padding: " + JSON.stringify(maximumMenuHits));
       await trigger.click();
-      const dragHandle = card.locator(".widget-header .drag-handle");
-      const dragHit = await dragHandle.evaluate((button) => {
-        const rect = button.getBoundingClientRect();
-        const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest("button");
-        return { expected: button.getAttribute("aria-label"), hit: hit?.getAttribute("aria-label"), x: rect.x, y: rect.y };
-      });
-      assert.equal(dragHit.hit, dragHit.expected, "320px customize drag handle stays independently hit-testable beside the anchored options trigger");
+      assert.equal(await card.locator(".widget-header .drag-handle").count(), 0, "320px customization has no visible separate drag handle");
       await card.evaluate((node, originalSize) => {
         node.dataset.size = originalSize;
         node.style.removeProperty("--wa-padding");
