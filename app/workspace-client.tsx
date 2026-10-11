@@ -329,6 +329,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const [widgetPickerOpen, setWidgetPickerOpen] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const customizeButtonRef = useRef<HTMLButtonElement>(null);
+  const todayRemoveTargetRef = useRef<HTMLDivElement>(null);
+  const [todayRemoveDragState, setTodayRemoveDragState] = useState({ active: false, over: false });
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const closeAppearance = useCallback(() => setAppearanceOpen(false), []);
   const [miniWeekOffset, setMiniWeekOffset] = useState(0);
@@ -858,6 +860,16 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     if (updateWorkspaceWidgets((widgets) => [...widgets, { instanceId: uid("widget"), type, size: template.defaultSize, ...(type === "notes" ? { note: "" } : {}) }])) flash(`${template.title} added`);
   };
 
+  const removeWidget = (instanceId: string) => {
+    const widget = activeWorkspace.widgets.find((item) => item.instanceId === instanceId);
+    if (!widget) return false;
+    if (widget.note && !window.confirm("Remove this notes widget and its text?")) return false;
+    if (!updateWorkspaceWidgets((widgets) => widgets.filter((item) => item.instanceId !== instanceId))) return false;
+    closeWidgetMenu();
+    flash("Widget removed");
+    return true;
+  };
+
   const moveWidget = (from: number, to: number) => {
     if (from === to || from < 0 || from >= activeWorkspace.widgets.length || to < 0 || to >= activeWorkspace.widgets.length) return;
     updateWorkspaceWidgets((widgets) => {
@@ -1375,25 +1387,35 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     return (
       <div className="page home-page">
         <HomeGreeting {...homeGreeting} />
-        <TodaySection
-          key={activeWorkspace.id}
-          hidden={Boolean(activeWorkspace.todayHidden)}
-          customizing={customizing}
-          sections={activeWorkspace.todaySections ?? defaultTodaySections}
-          menuStyle={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties}
-          onHiddenChange={(hidden) => commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, todayHidden: hidden } : workspace))}
-          onSectionsChange={(sections) => commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, todaySections: sections } : workspace))}
-          onCalendar={() => navigate("calendar")}
-          onOptionsOpen={() => { closeWidgetMenu(); setWorkspaceMenuOpen(false); }}
-          onHideFocus={() => window.requestAnimationFrame(() => {
-            if (customizing) document.querySelector<HTMLButtonElement>(".today-section-restore")?.focus();
-            else customizeButtonRef.current?.focus();
-          })}
+        <div
+          ref={todayRemoveTargetRef}
+          className={`today-remove-target-host${!activeWorkspace.todayHidden || customizing ? " is-visible" : ""}`}
+          data-remove-target-active={todayRemoveDragState.active ? "true" : "false"}
+          data-remove-target-over={todayRemoveDragState.over ? "true" : "false"}
         >
-          <div className="today-panel-grid" data-section-count={activeWorkspace.todaySections?.length ?? defaultTodaySections.length}>
-            {(activeWorkspace.todaySections ?? defaultTodaySections).map(renderTodaySection)}
+          <div className="today-remove-target-content" inert={todayRemoveDragState.active || undefined}>
+            <TodaySection
+              key={activeWorkspace.id}
+              hidden={Boolean(activeWorkspace.todayHidden)}
+              customizing={customizing}
+              sections={activeWorkspace.todaySections ?? defaultTodaySections}
+              menuStyle={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties}
+              onHiddenChange={(hidden) => commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, todayHidden: hidden } : workspace))}
+              onSectionsChange={(sections) => commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, todaySections: sections } : workspace))}
+              onCalendar={() => navigate("calendar")}
+              onOptionsOpen={() => { closeWidgetMenu(); setWorkspaceMenuOpen(false); }}
+              onHideFocus={() => window.requestAnimationFrame(() => {
+                if (customizing) document.querySelector<HTMLButtonElement>(".today-section-restore")?.focus();
+                else customizeButtonRef.current?.focus();
+              })}
+            >
+              <div className="today-panel-grid" data-section-count={activeWorkspace.todaySections?.length ?? defaultTodaySections.length}>
+                {(activeWorkspace.todaySections ?? defaultTodaySections).map(renderTodaySection)}
+              </div>
+            </TodaySection>
           </div>
-        </TodaySection>
+          {todayRemoveDragState.active && <div className="today-remove-target-overlay" aria-hidden="true"><Trash2 size={24} strokeWidth={2.2} /><span>remove widget</span></div>}
+        </div>
 
         <section className="workspace-section">
           <div className="workspace-bar">
@@ -1435,6 +1457,9 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
               layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${JSON.stringify(extraData.widgetAppearance)}`}
               reflowKey={String(sidebarCollapsed)}
               enabled={widgetEditingEnabled}
+              removeTargetRef={activeWorkspace.todayHidden && !customizing ? undefined : todayRemoveTargetRef}
+              onRemove={removeWidget}
+              onRemoveDragStateChange={(active, over) => setTodayRemoveDragState((current) => current.active === active && current.over === over ? current : { active, over })}
               onResize={resizeWidget}
               resizePriorities={activeWorkspace.resizePriorities}
               onReorderStart={closeWidgetMenu}
@@ -1533,7 +1558,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
                   commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, widgets: [...workspace.widgets, copy] } : workspace), activeWorkspaceId, notes, appearance);
                   closeWidgetMenu();
                 }}><Copy size={15} /> Duplicate</button>
-                <button className="danger" onClick={() => { if (widget.note && !window.confirm("Remove this notes widget and its text?")) return; if (updateWorkspaceWidgets((widgets) => widgets.filter((item) => item.instanceId !== widget.instanceId))) { closeWidgetMenu(); flash("Widget removed"); } }}><Trash2 size={15} /> Remove</button>
+                <button className="danger" onClick={() => removeWidget(widget.instanceId)}><Trash2 size={15} /> Remove</button>
               </div>
             )}
       </article>

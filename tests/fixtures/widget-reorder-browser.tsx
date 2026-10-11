@@ -48,9 +48,14 @@ const miniPairScenario = new URLSearchParams(location.search).has("mini-pair");
 const freshMiniScenario = new URLSearchParams(location.search).has("fresh-mini");
 const adjacentMiniScenario = new URLSearchParams(location.search).has("mini-adjacent");
 const resizePriorityScenario = new URLSearchParams(location.search).has("resize-priority");
+const removeMultiWorkspaceScenario = new URLSearchParams(location.search).has("remove-multi");
 const miniScenario = miniPairScenario || freshMiniScenario || adjacentMiniScenario || resizePriorityScenario;
 const widgets = resizePriorityScenario ? resizePriorityWidgets : miniPairScenario ? miniPairWidgets : freshMiniScenario ? freshMiniWidgets : adjacentMiniScenario ? adjacentMiniWidgets : location.search.includes("long=1") ? longWidgets : compactWidgets;
-const initialDashboard = encodeWorkspaceState([{ id: "fixture-day", name: "Fixture day", widgets }], "fixture-day", "");
+const fixtureWorkspaces = [
+  { id: "fixture-day", name: "Fixture day", widgets },
+  ...(removeMultiWorkspaceScenario ? [{ id: "fixture-other", name: "Other day", widgets: [{ instanceId: "other-timer", type: "pomodoro" as const, size: "small" as const }] }] : []),
+];
+const initialDashboard = encodeWorkspaceState(fixtureWorkspaces, "fixture-day", "");
 const updatedAt = "2026-10-06T00:00:00.000Z";
 const persistedFixtureKey = resizePriorityScenario ? "widget-resize-browser-priority" : miniPairScenario ? "widget-reorder-browser-mini-pair" : freshMiniScenario ? "widget-reorder-browser-fresh-mini" : "widget-reorder-browser-adjacent-mini";
 const profile = {

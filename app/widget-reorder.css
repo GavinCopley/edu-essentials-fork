@@ -2,6 +2,77 @@
   position: relative;
 }
 
+.reference-ui .today-remove-target-host {
+  position: relative;
+}
+
+.reference-ui .today-remove-target-host.is-visible {
+  display: flow-root;
+  margin: 0 0 var(--layout-gap);
+}
+
+.reference-ui .today-remove-target-host .home-today-panel {
+  margin-bottom: 0;
+}
+
+.reference-ui .today-remove-target-content {
+  position: relative;
+}
+
+.reference-ui .today-remove-target-host[data-remove-target-active="true"] .today-remove-target-content {
+  visibility: hidden;
+}
+
+.reference-ui .today-remove-target-overlay {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(8 * var(--ui-unit));
+  border: 1px dashed #ff7784;
+  border-radius: calc(10 * var(--ui-unit));
+  outline: 1px dashed #ff7784;
+  outline-offset: -4px;
+  background: color-mix(in srgb, #ff7784 9%, #102543);
+  color: #ffc0c5;
+  font-size: calc(14 * var(--ui-unit));
+  font-weight: 650;
+  pointer-events: none;
+  animation: today-remove-target-enter 360ms cubic-bezier(.2, 1.25, .4, 1) both;
+  transition: background 180ms ease, color 180ms ease, box-shadow 180ms ease;
+}
+
+.reference-ui .today-remove-target-host[data-remove-target-over="true"] .today-remove-target-overlay {
+  background: color-mix(in srgb, #ff7784 17%, #102543);
+  box-shadow: 0 0 0 4px color-mix(in srgb, #ff7784 16%, transparent), inset 0 0 20px #ff77841c;
+  color: #ffe0e2;
+}
+
+.reference-ui .today-remove-target-overlay svg {
+  flex: 0 0 auto;
+}
+
+@keyframes today-remove-target-enter {
+  from { opacity: 0; transform: scale(.96); }
+  68% { opacity: 1; transform: scale(1.018); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+html[data-motion="reduced"] .reference-ui .today-remove-target-overlay {
+  animation: none;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reference-ui .today-remove-target-overlay {
+    animation: none;
+    transition: none;
+  }
+}
+
 .reorderable-widget-grid.is-reorder-enabled .widget-header,
 .reorderable-widget-grid.is-reorder-enabled .drag-handle {
   cursor: grab;
@@ -123,6 +194,11 @@ html[data-motion="reduced"] .reference-ui .widget-card[data-widget-resize-live="
   margin: 0;
   pointer-events: none;
   will-change: left, top, width, height, opacity;
+  transition: opacity 160ms ease;
+}
+
+.reference-ui .widget-reorder-overlay.is-removal-hover {
+  opacity: .3 !important;
 }
 
 .reference-ui .widget-reorder-overlay > .widget-card.widget-reorder-lift {
@@ -147,9 +223,17 @@ html[data-motion="reduced"] .reference-ui .widget-reorder-overlay > .widget-card
   box-shadow: var(--wa-shadow, none) !important;
 }
 
+html[data-motion="reduced"] .reference-ui .widget-reorder-overlay {
+  transition: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reference-ui .widget-reorder-overlay > .widget-card.widget-reorder-lift {
     transform: none;
     box-shadow: var(--wa-shadow, none) !important;
+  }
+
+  .reference-ui .widget-reorder-overlay {
+    transition: none;
   }
 }

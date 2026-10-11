@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import type { WidgetInstance } from "../lib/workspace-codec";
 import { calculateWidgetUnit } from "./animated-widget-grid";
@@ -25,6 +25,9 @@ type Props = {
   onCustomize?: () => void;
   onResize?: (widgetId: string, size: WidgetSize, priority?: WidgetResizePriority) => boolean;
   resizePriorities?: readonly WidgetResizePriority[];
+  removeTargetRef?: RefObject<HTMLElement | null>;
+  onRemove?: (widgetId: string) => boolean;
+  onRemoveDragStateChange?: (active: boolean, over: boolean) => void;
 };
 
 type DragPhase = "pending" | "active" | "settling";
@@ -67,6 +70,8 @@ type DragSession = {
     scroll: () => void;
   } | null;
   animations: Set<Animation>;
+  removeTargetActive: boolean;
+  removeTargetOver: boolean;
 };
 
 function sameIds(left: readonly string[], right: readonly string[]) {
@@ -127,6 +132,9 @@ export default function ReorderableWidgetGrid({
   onCustomize,
   onResize,
   resizePriorities,
+  removeTargetRef,
+  onRemove,
+  onRemoveDragStateChange,
 }: Props) {
   const [previewOrder, setPreviewOrder] = useState<string[] | null>(null);
   const [previewMiniStart, setPreviewMiniStart] = useState<boolean | null>(null);
@@ -139,7 +147,7 @@ export default function ReorderableWidgetGrid({
   const boardScrollOffsets = useRef(new Map<HTMLElement, { top: number; left: number }>());
   const fadingOverlays = useRef(new Map<HTMLDivElement, Animation>());
   const processPointerRef = useRef<(session: DragSession) => void>(() => undefined);
-  const latestProps = useRef({ workspaceId, layoutKey, enabled, items, onReorder, onReorderStart });
+  const latestProps = useRef({ workspaceId, layoutKey, enabled, items, onReorder, onReorderStart, removeTargetRef, onRemove, onRemoveDragStateChange });
 
   const ids = items.map((item) => item.instanceId);
   const itemData = itemDataKey(items);
@@ -147,8 +155,16 @@ export default function ReorderableWidgetGrid({
   const itemsById = new Map(items.map((item) => [item.instanceId, item]));
 
   useLayoutEffect(() => {
-    latestProps.current = { workspaceId, layoutKey, enabled, items, onReorder, onReorderStart };
-  }, [enabled, items, layoutKey, onReorder, onReorderStart, workspaceId]);
+    latestProps.current = { workspaceId, layoutKey, enabled, items, onReorder, onReorderStart, removeTargetRef, onRemove, onRemoveDragStateChange };
+  }, [enabled, items, layoutKey, onReorder, onReorderStart, onRemove, onRemoveDragStateChange, removeTargetRef, workspaceId]);
+
+  const updateRemoveTargetState = useCallback((session: DragSession, active: boolean, over: boolean) => {
+    if (session.removeTargetActive === active && session.removeTargetOver === over) return;
+    session.removeTargetActive = active;
+    session.removeTargetOver = over;
+    session.overlay?.classList.toggle("is-removal-hover", over);
+    latestProps.current.onRemoveDragStateChange?.(active, over);
+  }, []);
 
   const restoreBoardScroll = useCallback((clear: boolean) => {
     // Browsers may reset nested scroll positions when a keyed card moves in
@@ -192,6 +208,7 @@ export default function ReorderableWidgetGrid({
   const cancelSession = useCallback((session: DragSession, fadeOverlay: boolean) => {
     if (sessionRef.current !== session) return;
     sessionRef.current = null;
+    updateRemoveTargetState(session, false, false);
     removePointerListeners(session);
     if (session.frame !== null) window.cancelAnimationFrame(session.frame);
     session.frame = null;
@@ -220,7 +237,7 @@ export default function ReorderableWidgetGrid({
     }
 
     removeOverlay(session);
-  }, [removeOverlay, removePointerListeners, restoreBoardScroll]);
+  }, [removeOverlay, removePointerListeners, restoreBoardScroll, updateRemoveTargetState]);
 
   const { preview: resizePreview, beginResize, cancelResize } = useWidgetResize({
     host,
@@ -255,6 +272,26 @@ export default function ReorderableWidgetGrid({
   }, []);
 
   const updateProjection = useCallback((session: DragSession) => {
+    const removeTarget = latestProps.current.enabled ? latestProps.current.removeTargetRef?.current : null;
+    const removeTargetRect = removeTarget?.isConnected ? removeTarget.getBoundingClientRect() : null;
+    const overRemoveTarget = Boolean(removeTargetRect && removeTargetRect.width > 0 && removeTargetRect.height > 0
+      && session.latestX >= removeTargetRect.left
+      && session.latestX <= removeTargetRect.right
+      && session.latestY >= removeTargetRect.top
+      && session.latestY <= removeTargetRect.bottom);
+    if (overRemoveTarget) {
+      updateRemoveTargetState(session, true, true);
+      session.valid = true;
+      session.previewIndex = null;
+      session.currentOrder = session.originIds;
+      session.currentMiniStart = session.miniStarts[session.draggedId];
+      setPreviewOrder(null);
+      setPreviewMiniStart(null);
+      setInvalidDrop(false);
+      return;
+    }
+    updateRemoveTargetState(session, true, false);
+
     const wrapper = host.current;
     const grid = wrapper?.querySelector<HTMLElement>(".widget-grid");
     if (!grid || session.phase !== "active") return;
@@ -304,7 +341,7 @@ export default function ReorderableWidgetGrid({
     setInvalidDrop(false);
     setPreviewOrder((previous) => sameIds(previous ?? session.originIds, candidate) ? previous : candidate);
     setPreviewMiniStart(insertion.startsNewMiniBlock);
-  }, []);
+  }, [updateRemoveTargetState]);
 
   const processPointer = useCallback((session: DragSession) => {
     if (session.phase !== "active") return;
@@ -385,12 +422,13 @@ export default function ReorderableWidgetGrid({
     session.overlay = overlay;
     session.overlayCard = clone;
     session.phase = "active";
+    updateRemoveTargetState(session, true, false);
     setIsReorderSettling(false);
     positionOverlay(session);
     setDraggedId(session.draggedId);
     setPreviewMiniStart(session.currentMiniStart);
     latestProps.current.onReorderStart?.();
-  }, [cancelSession, positionOverlay]);
+  }, [cancelSession, positionOverlay, updateRemoveTargetState]);
 
   const animateDrop = useCallback((session: DragSession) => {
     if (sessionRef.current !== session || session.phase !== "settling") return;
@@ -514,6 +552,8 @@ export default function ReorderableWidgetGrid({
       frame: null,
       listeners: null,
       animations: new Set(),
+      removeTargetActive: false,
+      removeTargetOver: false,
     };
     sessionRef.current = session;
 
@@ -535,9 +575,7 @@ export default function ReorderableWidgetGrid({
       session.latestX = nativeEvent.clientX;
       session.latestY = nativeEvent.clientY;
       if (session.phase === "pending") {
-        sessionRef.current = null;
-        removePointerListeners(session);
-        restoreBoardScroll(true);
+        cancelSession(session, false);
         return;
       }
 
@@ -557,6 +595,17 @@ export default function ReorderableWidgetGrid({
         cancelSession(session, true);
         return;
       }
+
+      if (session.removeTargetOver) {
+        // Clear all drag state and native listeners before a removal callback
+        // can open a blocking confirmation dialog and blur the window.
+        cancelSession(session, false);
+        current.onRemove?.(session.draggedId);
+        return;
+      }
+
+      // The target is no longer active once a normal drop starts settling.
+      updateRemoveTargetState(session, false, false);
 
       const miniChanged = session.sizes[session.draggedId] === "mini"
         && session.currentMiniStart !== session.miniStarts[session.draggedId];
@@ -614,7 +663,7 @@ export default function ReorderableWidgetGrid({
       activateSession(session);
       if (session.phase === "active") schedulePointer(session);
     }
-  }, [activateSession, cancelResize, cancelSession, itemData, items, layoutKey, processPointer, removePointerListeners, restoreBoardScroll, schedulePointer, workspaceId]);
+  }, [activateSession, cancelResize, cancelSession, itemData, items, layoutKey, processPointer, removePointerListeners, schedulePointer, updateRemoveTargetState, workspaceId]);
 
   const beginShake = useWidgetShake(`${workspaceId}:${layoutKey}:${itemData}`, !enabled && onCustomize ? (start, current) => {
     flushSync(() => onCustomize());
@@ -638,6 +687,7 @@ export default function ReorderableWidgetGrid({
     const session = sessionRef.current;
     if (session) {
       sessionRef.current = null;
+      updateRemoveTargetState(session, false, false);
       removePointerListeners(session);
       if (session.frame !== null) window.cancelAnimationFrame(session.frame);
       removeOverlay(session);
@@ -648,7 +698,7 @@ export default function ReorderableWidgetGrid({
     }
     fadingOverlays.current.clear();
     boardScrollOffsets.current.clear();
-  }, [removeOverlay, removePointerListeners]);
+  }, [removeOverlay, removePointerListeners, updateRemoveTargetState]);
 
   return (
     <div
