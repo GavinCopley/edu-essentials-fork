@@ -8,6 +8,7 @@ import AnimatedWidgetGrid from "./animated-widget-grid";
 import { getWidgetInsertionCandidate, reorderWidgetIds } from "../lib/widget-reorder";
 import { useWidgetShake } from "./use-widget-shake";
 import { useWidgetResize } from "./use-widget-resize";
+import { useWidgetDoubleTap } from "./use-widget-double-tap";
 import type { WidgetResizePriority, WidgetSize } from "../lib/widget-layout";
 
 type Props = {
@@ -23,6 +24,7 @@ type Props = {
   onReorder: (ids: string[], miniBlockChange?: { widgetId: string; startsNewMiniBlock: boolean }) => boolean;
   onReorderStart?: () => void;
   onCustomize?: () => void;
+  onFinishCustomize?: () => void;
   onResize?: (widgetId: string, size: WidgetSize, priority?: WidgetResizePriority) => boolean;
   resizePriorities?: readonly WidgetResizePriority[];
   removeTargetRef?: RefObject<HTMLElement | null>;
@@ -130,6 +132,7 @@ export default function ReorderableWidgetGrid({
   onReorder,
   onReorderStart,
   onCustomize,
+  onFinishCustomize,
   onResize,
   resizePriorities,
   removeTargetRef,
@@ -250,6 +253,13 @@ export default function ReorderableWidgetGrid({
       if (session) cancelSession(session, false);
       onReorderStart?.();
     },
+  });
+  const trackWidgetDoubleTap = useWidgetDoubleTap({
+    host,
+    enabled: enabled && Boolean(onFinishCustomize),
+    contextKey: `${workspaceId}:${layoutKey}:${itemData}`,
+    onDoubleTap: onFinishCustomize,
+    isBusy: () => Boolean(sessionRef.current && sessionRef.current.phase !== "pending") || Boolean(resizePreview),
   });
   const orderedItems = currentOrder.map((id) => itemsById.get(id)).filter((item): item is WidgetInstance => Boolean(item)).map((item) => {
     if (item.instanceId === resizePreview?.widgetId) {
@@ -705,6 +715,7 @@ export default function ReorderableWidgetGrid({
       ref={host}
       className={`reorderable-widget-grid${enabled ? " is-reorder-enabled" : ""}${invalidDrop ? " is-reorder-invalid" : ""}${resizePreview ? " is-widget-resizing" : ""}`}
       onPointerDownCapture={(event) => {
+        trackWidgetDoubleTap(event);
         if (beginResize(event)) return;
         beginShake(event);
         beginSession(event);

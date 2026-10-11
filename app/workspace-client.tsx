@@ -1463,6 +1463,10 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
               onResize={resizeWidget}
               resizePriorities={activeWorkspace.resizePriorities}
               onReorderStart={closeWidgetMenu}
+              onFinishCustomize={widgetEditingEnabled ? () => {
+                closeWidgetMenu();
+                setCustomizing(false);
+              } : undefined}
               onCustomize={!customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId && !syllabusAttachment && !syllabusTextCourseId && !nativeDocumentDialog ? () => {
                 closeWidgetMenu();
                 setCustomizing(true);
