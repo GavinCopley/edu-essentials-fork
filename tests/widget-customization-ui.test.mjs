@@ -497,6 +497,33 @@ test("shaking a held widget title enters Customize and holds the widget without 
   await pointer(window, "pointerup", 125, 0);
   assert.deepEqual([...rootNode.querySelectorAll("[data-widget-id]")].map((card) => card.dataset.widgetId), originalOrder);
   assert.equal(server.writes, 0);
+  assert.equal(button("Done customizing").getAttribute("aria-pressed"), "true", "Escape cancels the held widget before exiting customization");
+  await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  assert.equal(button("Customize").getAttribute("aria-pressed"), "false", "Escape exits customization after the gesture is canceled");
+  assert.equal(rootNode.querySelector(".reference-ui.is-customizing"), null);
+  assert.equal(document.activeElement, button("Customize"), "exiting returns focus to Customize");
+  await click("Customize");
   await click("Done customizing");
   assert.equal(button("Customize").getAttribute("aria-pressed"), "false", "the normal button still exits Customize");
+});
+
+test("Escape exits widget customization from a focused widget after a dialog closes", async () => {
+  reset(); installServer(); await render(Workspace, { initialProfile: baseProfile });
+  await click("Customize");
+  await click("Widget customization");
+  await act(async () => appearanceDialog().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  assert.equal(appearanceDialog(), null);
+  assert.equal(button("Done customizing").getAttribute("aria-pressed"), "true", "closing the dialog preserves customization mode");
+
+  const notes = rootNode.querySelector('textarea[aria-label="Quick notes"]');
+  await act(async () => {
+    notes.focus();
+    notes.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  assert.ok(rootNode.querySelector(".reference-ui.is-customizing"), "other keys preserve customization mode");
+  await act(async () => notes.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  assert.equal(button("Customize").getAttribute("aria-pressed"), "false");
+  assert.equal(rootNode.querySelector(".reference-ui.is-customizing"), null);
+  assert.equal(document.activeElement, button("Customize"));
+  assert.equal(server.writes, 0, "exiting does not change the saved widget layout");
 });

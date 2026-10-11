@@ -1059,6 +1059,19 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const workspaceToastLoading = workspacePending || (profileSaving && persistenceStatus === "saved");
   const widgetEditingEnabled = customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId && !syllabusAttachment && !syllabusTextCourseId && !nativeDocumentDialog;
 
+  useEffect(() => {
+    if (page !== "home" || !widgetEditingEnabled) return;
+    const exitCustomization = (event: KeyboardEvent) => {
+      // Let dialogs and active widget gestures handle Escape first.
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      setCustomizing(false);
+      customizeButtonRef.current?.focus();
+    };
+    window.addEventListener("keydown", exitCustomization);
+    return () => window.removeEventListener("keydown", exitCustomization);
+  }, [page, widgetEditingEnabled]);
+
   if (onboardingTest) return <OnboardingFlow initialProfile={profile} preview onExit={() => {
     setOnboardingTest(false);
     window.setTimeout(() => document.querySelector<HTMLButtonElement>(".experimental-trigger")?.focus(), 0);
