@@ -20,19 +20,20 @@ let root;
 
 function Widget({ contextKey, onActivate }) {
   const onPointerDownCapture = useWidgetShake(contextKey, onActivate);
-  return createElement("section", { "data-widget-id": "widget-a" },
-    createElement("div", { className: "widget-header", onPointerDownCapture },
-      createElement("span", { id: "title" }, "Widget"),
-      createElement("button", { id: "button" }, "Options"),
-      createElement("a", { id: "link", href: "#" }, "Link"),
-      createElement("input", { id: "input" }),
-      createElement("textarea", { id: "textarea" }),
-      createElement("select", { id: "select" }),
-      createElement("div", { id: "role-button", role: "button" }, "Action"),
-      createElement("div", { id: "editable", contentEditable: true, suppressContentEditableWarning: true }, "Edit")),
-    createElement("div", { className: "widget-body" },
-      createElement("span", { id: "body" }, "Body"),
-      createElement("button", { id: "body-button" }, "Body action")));
+  return createElement("div", { id: "gesture-container", className: "reorderable-widget-grid", onPointerDownCapture },
+    createElement("section", { "data-widget-id": "widget-a" },
+      createElement("div", { className: "widget-header" },
+        createElement("span", { id: "title" }, "Widget"),
+        createElement("button", { id: "button" }, "Options"),
+        createElement("a", { id: "link", href: "#" }, "Link"),
+        createElement("input", { id: "input" }),
+        createElement("textarea", { id: "textarea" }),
+        createElement("select", { id: "select" }),
+        createElement("div", { id: "role-button", role: "button" }, "Action"),
+        createElement("div", { id: "editable", contentEditable: true, suppressContentEditableWarning: true }, "Edit")),
+      createElement("div", { className: "widget-body" },
+        createElement("span", { id: "body" }, "Body"),
+        createElement("button", { id: "body-button" }, "Body action"))));
 }
 
 async function mount(props) {
@@ -189,6 +190,32 @@ test("activation retains the existing shake threshold and supplies origin and vi
   );
   for (const key of ["x", "y", "width", "height"]) assert.ok(Number.isFinite(preview.visualRect[key]), `visualRect.${key} is finite`);
   assertPreviewCleared(card, "activation handoff");
+});
+
+test("top and side card padding start the shake while points below the header do not", async () => {
+  const activations = [];
+  await mount({ contextKey: "workspace-a", onActivate: (startEvent) => activations.push(startEvent) });
+  const card = rootNode.querySelector("[data-widget-id='widget-a']");
+  const header = rootNode.querySelector(".widget-header");
+  card.getBoundingClientRect = () => new window.DOMRect(10, 20, 300, 220);
+  header.getBoundingClientRect = () => new window.DOMRect(26, 46, 268, 36);
+
+  shakePath(120, [[12, 22], [30, 22], [12, 22], [30, 22]], { target: card });
+  shakePath(121, [[308, 60], [290, 60], [308, 60], [290, 60]], { target: card, startTime: 1000 });
+  assert.equal(activations.length, 2, "top-left and full-width side padding are valid grab points");
+  assert.equal(activations[0].target, card);
+  assert.equal(activations[1].target, card);
+
+  const outside = [[120, 120], [138, 120], [120, 120], [138, 120]];
+  shakePath(122, outside, { target: rootNode.querySelector("#body"), startTime: 2000 });
+  assert.equal(activations.length, 2, "the widget body stays outside the grab region");
+  shakePath(123, [[100, 60], [118, 60], [100, 60], [118, 60]], {
+    target: rootNode.querySelector("#button"), startTime: 3000,
+  });
+  shakePath(124, [[100, 60], [118, 60], [100, 60], [118, 60]], {
+    target: rootNode.querySelector("#body-button"), startTime: 4000,
+  });
+  assert.equal(activations.length, 2, "interactive controls remain excluded even over the grab region");
 });
 
 test("activates once after three 18px horizontal strokes at inclusive limits", async () => {
@@ -381,7 +408,8 @@ test("cancels on pointer release, cancellation, capture loss, blur, and Escape",
 
 test("sets pointer capture and releases it on cancellation and activation", async () => {
   const activations = [];
-  const header = await mount({ contextKey: "workspace-a", onActivate: () => activations.push("activated") });
+  await mount({ contextKey: "workspace-a", onActivate: () => activations.push("activated") });
+  const header = rootNode.querySelector(".widget-header");
   const heldPointers = new Set();
   const setCalls = [];
   const releaseCalls = [];

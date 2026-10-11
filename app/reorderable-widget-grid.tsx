@@ -7,6 +7,7 @@ import { calculateWidgetUnit } from "./animated-widget-grid";
 import AnimatedWidgetGrid from "./animated-widget-grid";
 import { getWidgetInsertionCandidate, reorderWidgetIds } from "../lib/widget-reorder";
 import { stepWidgetDragMotion, type WidgetDragMotion } from "../lib/widget-drag-motion";
+import { resolveWidgetGrabElements, resolveWidgetGrabRegion } from "./widget-grab-region";
 import { useWidgetShake, type WidgetShakePreviewBounds } from "./use-widget-shake";
 import { useWidgetResize } from "./use-widget-resize";
 import { useWidgetDoubleTap } from "./use-widget-double-tap";
@@ -669,16 +670,24 @@ export default function ReorderableWidgetGrid({
   }, [animateDrop, settleTick]);
 
   const beginSession = useCallback((
-    event: Pick<PointerEvent, "target" | "button" | "isPrimary" | "pointerId" | "clientX" | "clientY">,
+    event: Pick<PointerEvent, "target" | "button" | "isPrimary" | "pointerId" | "pointerType" | "clientX" | "clientY">,
     activePointer?: PointerEvent,
     previewBounds?: WidgetShakePreviewBounds,
   ) => {
     if (!latestProps.current.enabled || event.button !== 0 || !event.isPrimary) return;
     const target = event.target instanceof Element ? event.target : null;
     const handle = target?.closest<HTMLElement>("[data-widget-reorder-handle]");
-    const header = target?.closest<HTMLElement>(".widget-header");
-    const source = (handle ?? header)?.closest<HTMLElement>("[data-widget-id]");
-    if (!source || !host.current?.contains(source)) return;
+    const container = host.current;
+    if (!container) return;
+    // A shake has already validated the press, before Customize can move the grid.
+    // Touch and pen keep their header-only starts so card padding can still pan.
+    const region = previewBounds || handle
+      ? resolveWidgetGrabElements(handle ?? target, container)
+      : event.pointerType === "mouse"
+        ? resolveWidgetGrabRegion(target, event.clientX, event.clientY, container)
+        : resolveWidgetGrabElements(target?.closest(".widget-header") ?? null, container);
+    const source = region?.card;
+    if (!source) return;
     if (!handle && target?.closest("button, a, input, textarea, select, [role='button'], [contenteditable]:not([contenteditable='false'])")) return;
     cancelResize();
 

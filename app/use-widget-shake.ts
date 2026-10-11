@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { resolveWidgetGrabRegion } from "./widget-grab-region";
 
 export type WidgetShakePreviewBounds = {
   originRect: DOMRect;
@@ -100,14 +101,13 @@ export function useWidgetShake(
   return (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!activateRef.current || event.pointerType !== "mouse" || event.button !== 0 || !event.isPrimary) return;
     const target = event.target instanceof Element ? event.target : null;
-    const header = target?.closest<HTMLElement>(".widget-header");
-    if (!header || !event.currentTarget.contains(header) || !header.closest("[data-widget-id]")) return;
     if (target?.closest("button, a, input, textarea, select, [role='button'], [contenteditable]:not([contenteditable='false'])")) return;
+    const region = resolveWidgetGrabRegion(target, event.clientX, event.clientY, event.currentTarget);
+    if (!region) return;
 
     cleanupRef.current?.();
     settleRef.current?.();
-    const card = header.closest<HTMLElement>("[data-widget-id]");
-    if (!card) return;
+    const { card, header } = region;
 
     const startEvent = event.nativeEvent;
     const pointerId = event.pointerId;

@@ -66,8 +66,8 @@ function observeErrors(page) {
   page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(`console: ${message.text()}`); });
 }
 
-async function loadPage({ reducedMotion = "no-preference" } = {}) {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, reducedMotion });
+async function loadPage({ width = 1440, height = 1100, reducedMotion = "no-preference", touch = false } = {}) {
+  const context = await browser.newContext({ viewport: { width, height }, reducedMotion, hasTouch: touch, isMobile: touch });
   await context.addInitScript(() => {
     const nativeAnimate = Element.prototype.animate;
     window.__widgetNudgeAnimations = [];
@@ -140,6 +140,126 @@ async function headingPoint(page, widgetId = "notes-main") {
   const box = await heading.boundingBox();
   assert.ok(box && box.width > 0 && box.height > 0, "widget heading is visible");
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+async function widgetGrabPoints(page) {
+  return page.evaluate(() => {
+    const card = document.querySelector('.widget-grid > [data-widget-id="notes-main"]');
+    const header = card?.querySelector(".widget-header");
+    const icon = header?.querySelector(".widget-icon");
+    const title = header?.querySelector("h2");
+    if (!(card instanceof HTMLElement) || !(header instanceof HTMLElement)
+      || !(icon instanceof HTMLElement) || !(title instanceof HTMLElement)) throw new Error("Missing widget grab targets");
+    const cardRect = card.getBoundingClientRect();
+    const headerRect = header.getBoundingClientRect();
+    const iconRect = icon.getBoundingClientRect();
+    const titleRect = title.getBoundingClientRect();
+    const centerY = (rect) => rect.top + rect.height / 2;
+    const blankX = iconRect.right + (titleRect.left - iconRect.right) / 2;
+    return {
+      topLeft: { x: cardRect.left + 6, y: cardRect.top + 6 },
+      topRight: { x: cardRect.right - 6, y: cardRect.top + 6 },
+      upperStrip: { x: cardRect.left + cardRect.width / 2, y: (cardRect.top + headerRect.top) / 2 },
+      icon: { x: iconRect.left + iconRect.width / 2, y: centerY(iconRect) },
+      title: { x: titleRect.left + titleRect.width / 2, y: centerY(titleRect) },
+      blankHeader: { x: blankX, y: centerY(headerRect) },
+      bounds: { card: { top: cardRect.top, left: cardRect.left, right: cardRect.right }, header: { top: headerRect.top, bottom: headerRect.bottom } },
+      blankHeaderIsGap: document.elementFromPoint(blankX, centerY(headerRect)) === header,
+    };
+  });
+}
+
+async function startShakeFromPoint(page, name, point) {
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  try {
+    await page.mouse.move(point.x + 80, point.y, { steps: 1 });
+    await page.mouse.move(point.x + 40, point.y, { steps: 1 });
+    await page.mouse.move(point.x + 80, point.y, { steps: 1 });
+    await page.waitForSelector(".widget-reorder-overlay", { state: "attached", timeout: 2500 });
+    assert.equal(await page.locator(".workspace-actions button[aria-pressed]").getAttribute("aria-pressed"), "true", `${name} opens Customize`);
+    assert.equal(await page.evaluate(() => window.__widgetFixture.writes), 0, `${name} does not save while held`);
+  } finally {
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector(".widget-reorder-overlay"));
+    await page.mouse.up();
+  }
+  const customize = page.locator(".workspace-actions button[aria-pressed]");
+  if (await customize.getAttribute("aria-pressed") === "true") await customize.click();
+  await page.waitForFunction(() => document.querySelector(".workspace-actions button[aria-pressed]")?.getAttribute("aria-pressed") === "false");
+}
+
+async function verifyWidgetGrabRegionAndSelection() {
+  const { context, page } = await loadPage();
+  try {
+    const points = await widgetGrabPoints(page);
+    assert.ok(points.bounds.header.top > points.bounds.card.top, "the widget has top padding above its header");
+    assert.ok(points.blankHeaderIsGap, "the blank header point lands in the icon/title gap");
+
+    const selectionStyle = await page.evaluate(() => ({
+      title: getComputedStyle(document.querySelector('.widget-grid > [data-widget-id="notes-main"] .widget-header h2')).userSelect,
+      body: getComputedStyle(document.querySelector('.widget-grid > [data-widget-id="notes-main"] .widget-body textarea')).userSelect,
+    }));
+    assert.equal(selectionStyle.title, "none", "widget titles cannot be selected");
+    assert.notEqual(selectionStyle.body, "none", "widget body text remains selectable");
+
+    const title = page.locator('.widget-grid > [data-widget-id="notes-main"] .widget-header h2');
+    const titleBox = await title.boundingBox();
+    assert.ok(titleBox, "widget title is visible for selection check");
+    await page.mouse.move(titleBox.x + 2, titleBox.y + titleBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(titleBox.x + titleBox.width - 2, titleBox.y + titleBox.height / 2, { steps: 2 });
+    await page.mouse.up();
+    assert.equal(await page.evaluate(() => window.getSelection()?.toString() ?? ""), "", "dragging across a title creates no text selection");
+    for (const name of ["topLeft", "topRight", "upperStrip", "icon", "title", "blankHeader"]) {
+      await startShakeFromPoint(page, name, points[name]);
+    }
+    const body = page.locator('.widget-grid > [data-widget-id="notes-main"] .widget-body textarea');
+    await body.fill("The widget body is still editable.");
+    assert.equal(await body.inputValue(), "The widget body is still editable.", "body editing remains available");
+  } finally { await context.close(); }
+
+  const direct = await loadPage();
+  try {
+    await direct.page.locator(".workspace-actions button[aria-pressed]").click();
+    await direct.page.waitForFunction(() => document.querySelector(".workspace-actions button[aria-pressed]")?.getAttribute("aria-pressed") === "true");
+    for (const name of ["topLeft", "topRight"]) {
+      const point = (await widgetGrabPoints(direct.page))[name];
+      await direct.page.mouse.move(point.x, point.y);
+      await direct.page.mouse.down();
+      try {
+        await direct.page.mouse.move(point.x + 18, point.y + 10, { steps: 1 });
+        await direct.page.waitForSelector(".widget-reorder-overlay", { state: "attached", timeout: 2500 });
+        assert.equal(await direct.page.locator(".workspace-actions button[aria-pressed]").getAttribute("aria-pressed"), "true", `${name} starts a live drag in Customize`);
+      } finally {
+        await direct.page.keyboard.press("Escape");
+        await direct.page.waitForFunction(() => !document.querySelector(".widget-reorder-overlay"));
+        await direct.page.mouse.up();
+      }
+    }
+  } finally { await direct.context.close(); }
+
+  const narrow = await loadPage({ width: 520, height: 1100 });
+  try {
+    const point = (await widgetGrabPoints(narrow.page)).upperStrip;
+    await startShakeFromPoint(narrow.page, "top padding with toolbar reflow", point);
+  } finally { await narrow.context.close(); }
+
+  const touch = await loadPage({ width: 520, height: 700, touch: true });
+  try {
+    await touch.page.locator(".workspace-actions button[aria-pressed]").click();
+    await touch.page.locator('.widget-grid > [data-widget-id="notes-main"] .widget-header').scrollIntoViewIfNeeded();
+    const point = (await widgetGrabPoints(touch.page)).upperStrip;
+    const beforeScroll = await touch.page.evaluate(() => window.scrollY);
+    const session = await touch.context.newCDPSession(touch.page);
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ id: 1, x: point.x, y: point.y }] });
+    for (const distance of [40, 80, 120]) {
+      await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ id: 1, x: point.x, y: point.y - distance }] });
+    }
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await touch.page.waitForFunction((scroll) => window.scrollY > scroll, beforeScroll);
+    assert.equal(await touch.page.locator(".widget-reorder-overlay").count(), 0, "touch panning from padding does not lift a widget");
+  } finally { await touch.context.close(); }
 }
 
 async function verifyEightDirectionGeometryAndCleanup() {
@@ -385,6 +505,7 @@ async function verifyImmediateFallbacks() {
 }
 
 try {
+  await verifyWidgetGrabRegionAndSelection();
   await verifyEightDirectionGeometryAndCleanup();
   await verifyHandoffGeometryAndEscape();
   await verifyEarlyHandoffCancellation();
