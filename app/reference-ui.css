@@ -12,8 +12,9 @@
   --desktop-content-ui-unit: max(0.0703125rem, calc(1.125 * var(--desktop-content-density-unit)));
   --sidebar-footprint: 210;
   --ui-unit: max(0.0703125rem, calc(1.125 * var(--desktop-density-unit)));
-  --shell-reflow-duration: 280ms;
-  --shell-reflow-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --shell-reflow-duration: 320ms;
+  /* A tiny overshoot keeps sidebar toggles soft while the shell moves in sync. */
+  --shell-reflow-easing: cubic-bezier(0.22, 1, 0.36, 1.06);
   --sidebar-rail-icon-inset: calc((64 * var(--ui-unit) - 12 * var(--ui-unit) - 21 * var(--ui-unit)) / 2 - 2 * var(--desktop-density-unit));
   --sidebar-rail-avatar-inset: calc((64 * var(--ui-unit) - 12 * var(--ui-unit) - 36 * var(--ui-unit)) / 2 - 2 * var(--desktop-density-unit));
   --sidebar-rail-toggle-inset: calc((64 * var(--ui-unit) - 12 * var(--ui-unit) - 26 * var(--ui-unit)) / 2 - 2 * var(--desktop-density-unit));

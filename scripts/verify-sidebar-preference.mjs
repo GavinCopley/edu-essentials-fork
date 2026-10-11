@@ -182,7 +182,7 @@ function assertSquareWidgets(snapshot, context) {
   }
 }
 
-async function captureToggle(page, duration = 330) {
+async function captureToggle(page, duration = 380) {
   return page.evaluate(async (duration) => {
     const shell = document.querySelector(".app-shell");
     const snapshot = () => {
@@ -251,8 +251,11 @@ function assertSynchronizedMotion(before, after, frames, direction) {
     assert.ok(Math.max(...progresses) - Math.min(...progresses) < 0.025, `${direction}: shell geometry shares one eased progress (${progresses.map((progress) => progress.toFixed(3)).join(", ")})`);
   }
   for (const frame of frames) {
+    const progresses = ["sidebarWidth", "contentLeft", "topbarLeft", "topbarWidth", "backdropLeft"].map((name) => progressAt(frame, name));
+    assert.ok(progresses.every((progress) => progress >= -0.02 && progress <= 1.02), `${direction}: shell bounce stays within 2% of the destination`);
     assert.ok(Math.abs(frame.brandRow.height - before.brandRow.height) < 0.75, `${direction}: brand row keeps a stable height (${before.brandRow.height.toFixed(2)} → ${frame.brandRow.height.toFixed(2)})`);
   }
+  assert.ok(frames.some((frame) => progressAt(frame, "sidebarWidth") > 1.003), `${direction}: sidebar gently overshoots before settling`);
   for (const frame of frames) assertSquareWidgets(frame, `${direction} at ${Math.round(frame.at - frames[0].at)}ms`);
 
   const transitionSamples = frames.flatMap((frame) => frame.activeTransitions);
@@ -260,7 +263,7 @@ function assertSynchronizedMotion(before, after, frames, direction) {
   for (const property of ["width", "margin-left", "left"]) {
     assert.ok(properties.has(property), `${direction}: browser reports a running ${property} transition`);
   }
-  assert.ok(transitionSamples.every(({ duration, easing }) => duration === 280 && easing === "cubic-bezier(0.22, 1, 0.36, 1)"), `${direction}: all active CSS transitions use the shared 280ms easing`);
+  assert.ok(transitionSamples.every(({ duration, easing }) => duration === 320 && easing === "cubic-bezier(0.22, 1, 0.36, 1.06)"), `${direction}: all active CSS transitions use the shared 320ms bounce easing`);
 }
 
 async function shellAnimations(page) {
@@ -373,7 +376,7 @@ try {
             contentLeft: document.querySelector(".main-content").getBoundingClientRect().left,
             backdropLeft: document.querySelector(".mountain-backdrop").getBoundingClientRect().left,
           });
-          if (performance.now() - startedAt >= 250) resolve(frames);
+          if (performance.now() - startedAt >= 380) resolve(frames);
           else requestAnimationFrame(sample);
         };
         requestAnimationFrame(sample);
@@ -382,7 +385,7 @@ try {
     assert.ok(drawerFrames.length >= 8, "mobile drawer was sampled across its rendered opening frames");
     assert.ok(drawerFrames.every(({ contentLeft, backdropLeft }) => Math.abs(contentLeft) < 0.1 && Math.abs(backdropLeft) < 0.1), "mobile drawer overlays without shifting the main content or backdrop");
     await mobilePage.locator(".sidebar-close").click();
-    await mobilePage.waitForTimeout(230);
+    await mobilePage.waitForTimeout(380);
     assert.ok(Math.abs((await metrics(mobilePage)).contentLeft) < 0.1, "closing the mobile drawer still does not shift content");
   } finally { await mobileContext.close(); }
 
