@@ -122,6 +122,75 @@ function finishShake(pointerId, { startX = 100, startY = 100, startTime = 100, t
   }
 }
 
+function assertPreviewCleared(card, message = "the directional preview is fully restored") {
+  assert.equal(card?.getAttribute("data-widget-shake-preview"), null, `${message}: preview marker`);
+  assert.equal(card?.style.getPropertyValue("--widget-shake-x"), "", `${message}: horizontal offset`);
+  assert.equal(card?.style.getPropertyValue("--widget-shake-y"), "", `${message}: vertical offset`);
+}
+
+function previewOffsets(card) {
+  return {
+    x: Number.parseFloat(card.style.getPropertyValue("--widget-shake-x")) || 0,
+    y: Number.parseFloat(card.style.getPropertyValue("--widget-shake-y")) || 0,
+  };
+}
+
+async function waitForPreviewRestore(card, message) {
+  await new Promise((resolve) => window.setTimeout(resolve, 160));
+  assertPreviewCleared(card, message);
+}
+
+test("previews a bounded directional nudge in all eight directions before activation", async () => {
+  const activations = [];
+  const header = await mount({ contextKey: "workspace-a", onActivate: () => activations.push("activated") });
+  const card = rootNode.querySelector("[data-widget-id='widget-a']");
+  const directions = [
+    ["right", 1, 0], ["down-right", 1, 1], ["down", 0, 1], ["down-left", -1, 1],
+    ["left", -1, 0], ["up-left", -1, -1], ["up", 0, -1], ["up-right", 1, -1],
+  ];
+
+  for (const [index, [description, dx, dy]] of directions.entries()) {
+    const pointerId = 100 + index;
+    const startX = 100 + index * 200;
+    const startY = 100 + index * 100;
+    start(header, { pointerId, clientX: startX, clientY: startY, timeStamp: 1000 + index * 1000 });
+    move(pointerId, startX + dx * 80, startY + dy * 80, 1200 + index * 1000);
+
+    assert.equal(card.getAttribute("data-widget-shake-preview"), "true", `${description} movement enables the held preview`);
+    const { x, y } = previewOffsets(card);
+    const magnitude = Math.hypot(x, y);
+    assert.ok(magnitude >= 6 && magnitude <= 10, `${description} nudge remains radial and near 8px (received ${magnitude}px)`);
+    const directionLength = Math.hypot(dx, dy);
+    assert.ok((x * dx + y * dy) / (magnitude * directionLength) > 0.9, `${description} nudge follows the pointer direction`);
+    assert.equal(activations.length, 0, `${description} preview does not activate Customize before the existing shake threshold`);
+
+    dispatch(window, pointerEvent("pointerup", { pointerId, clientX: startX + dx * 80, clientY: startY + dy * 80, timeStamp: 1250 + index * 1000 }));
+    await waitForPreviewRestore(card, `${description} release`);
+  }
+});
+
+test("activation retains the existing shake threshold and supplies origin and visual bounds", async () => {
+  const activations = [];
+  await mount({ contextKey: "workspace-a", onActivate: (...args) => activations.push(args) });
+  const card = rootNode.querySelector("[data-widget-id='widget-a']");
+  const expectedRect = new window.DOMRect(12, 24, 260, 150);
+  card.getBoundingClientRect = () => expectedRect;
+
+  shakePath(109, [[100, 100], [118, 100], [100, 100], [118, 100]]);
+
+  assert.equal(activations.length, 1, "three qualifying legs still activate exactly once");
+  const [startEvent, currentEvent, preview] = activations[0];
+  assert.equal(startEvent.pointerId, 109);
+  assert.equal(currentEvent.pointerId, 109);
+  assert.ok(preview?.originRect && preview?.visualRect, "activation includes both geometry snapshots");
+  assert.deepEqual(
+    [preview.originRect.x, preview.originRect.y, preview.originRect.width, preview.originRect.height],
+    [expectedRect.x, expectedRect.y, expectedRect.width, expectedRect.height],
+  );
+  for (const key of ["x", "y", "width", "height"]) assert.ok(Number.isFinite(preview.visualRect[key]), `visualRect.${key} is finite`);
+  assertPreviewCleared(card, "activation handoff");
+});
+
 test("activates once after three 18px horizontal strokes at inclusive limits", async () => {
   const activations = [];
   const header = await mount({ contextKey: "workspace-a", onActivate: () => activations.push("activated") });
@@ -205,6 +274,39 @@ test("ignores controls, widget body, and unsupported pointer presses", async () 
   }
 });
 
+test("interactive targets, disabled activation, and unsupported pointers never nudge the widget", async () => {
+  const header = await mount({ contextKey: "workspace-a" });
+  const card = rootNode.querySelector("[data-widget-id='widget-a']");
+  const ignoredTargets = [
+    ["button", rootNode.querySelector("#button"), {}],
+    ["link", rootNode.querySelector("#link"), {}],
+    ["input", rootNode.querySelector("#input"), {}],
+    ["textarea", rootNode.querySelector("#textarea"), {}],
+    ["select", rootNode.querySelector("#select"), {}],
+    ["role button", rootNode.querySelector("#role-button"), {}],
+    ["editable content", rootNode.querySelector("#editable"), {}],
+    ["touch", rootNode.querySelector("#title"), { pointerType: "touch" }],
+    ["pen", rootNode.querySelector("#title"), { pointerType: "pen" }],
+    ["non-primary pointer", rootNode.querySelector("#title"), { isPrimary: false }],
+    ["secondary mouse button", rootNode.querySelector("#title"), { button: 2 }],
+  ];
+
+  for (const [index, [description, target, options]] of ignoredTargets.entries()) {
+    const pointerId = 200 + index;
+    dispatch(target, pointerEvent("pointerdown", { pointerId, clientX: 100, clientY: 100, timeStamp: 1000 + index * 1000, ...options }));
+    move(pointerId, 110, 100, 1200 + index * 1000);
+    assertPreviewCleared(card, `${description} press`);
+    dispatch(window, pointerEvent("pointercancel", { pointerId }));
+  }
+
+  const body = rootNode.querySelector("#body");
+  dispatch(body, pointerEvent("pointerdown", { pointerId: 220, clientX: 100, clientY: 100 }));
+  move(220, 110, 100, 200);
+  assertPreviewCleared(card, "widget body press");
+  dispatch(window, pointerEvent("pointercancel", { pointerId: 220 }));
+  assert.ok(header.isConnected);
+});
+
 test("requires 18px per leg and cancels excessive elapsed time", async () => {
   const activations = [];
   const header = await mount({ contextKey: "workspace-a", onActivate: () => activations.push("activated") });
@@ -256,6 +358,7 @@ test("ignores one-way movement, unrelated pointer IDs, and moves after buttons a
 test("cancels on pointer release, cancellation, capture loss, blur, and Escape", async () => {
   const activations = [];
   const header = await mount({ contextKey: "workspace-a", onActivate: () => activations.push("activated") });
+  const card = rootNode.querySelector("[data-widget-id]");
   const cancellations = [
     ["pointer release", (pointerId) => dispatch(window, pointerEvent("pointerup", { pointerId, timeStamp: 1100 }))],
     ["pointer cancellation", (pointerId) => dispatch(window, pointerEvent("pointercancel", { pointerId, timeStamp: 1100 }))],
@@ -267,7 +370,10 @@ test("cancels on pointer release, cancellation, capture loss, blur, and Escape",
   for (const [index, [description, cancel]] of cancellations.entries()) {
     const pointerId = index + 50;
     start(header, { pointerId, timeStamp: 1000 });
+    move(pointerId, 110, 100, 1050);
+    assert.equal(card.getAttribute("data-widget-shake-preview"), "true", `${description} starts with a visible directional preview`);
     cancel(pointerId);
+    await waitForPreviewRestore(card, `${description} cancellation`);
     finishShake(pointerId, { startTime: 1100 });
     assert.equal(activations.length, 0, `${description} must prevent activation`);
   }
@@ -284,11 +390,14 @@ test("sets pointer capture and releases it on cancellation and activation", asyn
   header.releasePointerCapture = (pointerId) => { releaseCalls.push(pointerId); heldPointers.delete(pointerId); };
 
   start(header, { pointerId: 80, timeStamp: 100 });
+  move(80, 110, 100, 150);
+  assert.equal(rootNode.querySelector("[data-widget-id]").getAttribute("data-widget-shake-preview"), "true");
   assert.deepEqual(setCalls, [80]);
   assert.equal(heldPointers.has(80), true);
   dispatch(window, pointerEvent("pointercancel", { pointerId: 80, timeStamp: 110 }));
   assert.deepEqual(releaseCalls, [80]);
   assert.equal(heldPointers.has(80), false);
+  await waitForPreviewRestore(rootNode.querySelector("[data-widget-id]"), "pointer capture cancellation");
 
   start(header, { pointerId: 81, timeStamp: 1000 });
   assert.deepEqual(setCalls, [80, 81]);
@@ -303,15 +412,23 @@ test("cancels an active gesture when context or callback availability changes", 
   const callback = () => activations.push("activated");
   const initial = { contextKey: "workspace-a", onActivate: callback };
   let header = await mount(initial);
+  let card = rootNode.querySelector("[data-widget-id]");
 
   start(header, { pointerId: 60, timeStamp: 100 });
+  move(60, 110, 100, 150);
+  assert.equal(card.getAttribute("data-widget-shake-preview"), "true");
   await render({ ...initial, contextKey: "workspace-b" });
+  assertPreviewCleared(card, "workspace context change");
   finishShake(60);
   assert.equal(activations.length, 0, "changing context cancels an in-progress gesture");
 
   header = rootNode.querySelector(".widget-header");
+  card = rootNode.querySelector("[data-widget-id]");
   start(header, { pointerId: 61, timeStamp: 1000 });
+  move(61, 110, 100, 1050);
+  assert.equal(card.getAttribute("data-widget-shake-preview"), "true");
   await render({ contextKey: "workspace-b" });
+  assertPreviewCleared(card, "activation callback removal");
   finishShake(61, { startTime: 1100 });
   assert.equal(activations.length, 0, "removing the callback cancels an in-progress gesture");
 
@@ -326,8 +443,12 @@ test("cancels an active gesture when context or callback availability changes", 
 test("unmount cancels an active gesture", async () => {
   const activations = [];
   const header = await mount({ contextKey: "workspace-a", onActivate: () => activations.push("activated") });
+  const card = rootNode.querySelector("[data-widget-id]");
   start(header, { pointerId: 70, timeStamp: 100 });
+  move(70, 110, 100, 150);
+  assert.equal(card.getAttribute("data-widget-shake-preview"), "true");
   await unmount();
+  assertPreviewCleared(card, "unmount");
   finishShake(70);
   assert.equal(activations.length, 0);
 });

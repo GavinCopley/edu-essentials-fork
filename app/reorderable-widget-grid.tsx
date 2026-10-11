@@ -6,7 +6,7 @@ import type { WidgetInstance } from "../lib/workspace-codec";
 import { calculateWidgetUnit } from "./animated-widget-grid";
 import AnimatedWidgetGrid from "./animated-widget-grid";
 import { getWidgetInsertionCandidate, reorderWidgetIds } from "../lib/widget-reorder";
-import { useWidgetShake } from "./use-widget-shake";
+import { useWidgetShake, type WidgetShakePreviewBounds } from "./use-widget-shake";
 import { useWidgetResize } from "./use-widget-resize";
 import { useWidgetDoubleTap } from "./use-widget-double-tap";
 import type { WidgetResizePriority, WidgetSize } from "../lib/widget-layout";
@@ -58,6 +58,7 @@ type DragSession = {
   latestY: number;
   grabOffsetX: number;
   grabOffsetY: number;
+  previewBounds: WidgetShakePreviewBounds | null;
   overlay: HTMLDivElement | null;
   overlayCard: HTMLElement | null;
   frame: number | null;
@@ -72,6 +73,8 @@ type DragSession = {
     scroll: () => void;
   } | null;
   animations: Set<Animation>;
+  handoffAnimations: Set<Animation>;
+  handoffCardAnimation: Animation | null;
   removeTargetActive: boolean;
   removeTargetOver: boolean;
 };
@@ -84,6 +87,32 @@ function sameIdSet(left: readonly string[], right: readonly string[]) {
   return left.length === right.length && left.every((id) => right.includes(id));
 }
 
+function freezeWidgetShakeHandoff(session: DragSession) {
+  const overlay = session.overlay;
+  const card = session.overlayCard;
+  if (overlay && session.handoffAnimations.size) {
+    const rect = overlay.getBoundingClientRect();
+    overlay.style.left = `${rect.left}px`;
+    overlay.style.top = `${rect.top}px`;
+  }
+
+  const cardTransform = card && session.handoffCardAnimation
+    ? window.getComputedStyle(card).transform
+    : null;
+  for (const animation of session.handoffAnimations) {
+    animation.onfinish = null;
+    animation.oncancel = null;
+    animation.cancel();
+    session.animations.delete(animation);
+  }
+  session.handoffAnimations.clear();
+  session.handoffCardAnimation = null;
+  if (card && cardTransform) {
+    card.style.transform = cardTransform;
+    card.classList.remove("widget-reorder-shake-lift");
+  }
+}
+
 function copyLiveFormState(source: HTMLElement, clone: HTMLElement) {
   const sourceNodes = [source, ...source.querySelectorAll<HTMLElement>("*")];
   const cloneNodes = [clone, ...clone.querySelectorAll<HTMLElement>("*")];
@@ -94,6 +123,10 @@ function copyLiveFormState(source: HTMLElement, clone: HTMLElement) {
     cloneNode.removeAttribute("id");
     cloneNode.removeAttribute("data-widget-id");
     cloneNode.removeAttribute("data-widget-reorder-handle");
+    cloneNode.removeAttribute("data-widget-shake-preview");
+    cloneNode.style.removeProperty("--widget-shake-x");
+    cloneNode.style.removeProperty("--widget-shake-y");
+    cloneNode.style.removeProperty("--widget-shake-duration");
 
     if (sourceNode instanceof HTMLInputElement && cloneNode instanceof HTMLInputElement) {
       cloneNode.value = sourceNode.value;
@@ -186,6 +219,8 @@ export default function ReorderableWidgetGrid({
   const removeOverlay = useCallback((session: DragSession) => {
     for (const animation of session.animations) animation.cancel();
     session.animations.clear();
+    session.handoffAnimations.clear();
+    session.handoffCardAnimation = null;
     session.overlay?.remove();
     session.overlay = null;
     session.overlayCard = null;
@@ -210,6 +245,7 @@ export default function ReorderableWidgetGrid({
 
   const cancelSession = useCallback((session: DragSession, fadeOverlay: boolean) => {
     if (sessionRef.current !== session) return;
+    if (fadeOverlay) freezeWidgetShakeHandoff(session);
     sessionRef.current = null;
     updateRemoveTargetState(session, false, false);
     removePointerListeners(session);
@@ -225,6 +261,10 @@ export default function ReorderableWidgetGrid({
       ? Number.parseFloat(window.getComputedStyle(session.overlayCard).getPropertyValue("--wa-transition-ms"))
       : Number.NaN;
     if (fadeOverlay && session.overlay && configuredDuration !== 0 && !prefersReducedMotion() && typeof session.overlay.animate === "function") {
+      for (const animation of session.animations) animation.cancel();
+      session.animations.clear();
+      session.handoffAnimations.clear();
+      session.handoffCardAnimation = null;
       const overlay = session.overlay;
       session.overlay = null;
       session.overlayCard = null;
@@ -393,7 +433,9 @@ export default function ReorderableWidgetGrid({
       return;
     }
 
-    const rect = session.source.getBoundingClientRect();
+    const rect = session.previewBounds?.visualRect ?? session.source.getBoundingClientRect();
+    const desiredLeft = session.latestX - session.grabOffsetX;
+    const desiredTop = session.latestY - session.grabOffsetY;
     const board = host.current?.querySelector<HTMLElement>(".widget-grid");
     for (const node of board?.querySelectorAll<HTMLElement>("*") ?? []) {
       // Moving any keyed card can reset its nested viewport, including cards
@@ -406,8 +448,8 @@ export default function ReorderableWidgetGrid({
     overlay.className = "widget-reorder-overlay";
     overlay.setAttribute("aria-hidden", "true");
     overlay.setAttribute("inert", "");
-    overlay.style.left = `${rect.left}px`;
-    overlay.style.top = `${rect.top}px`;
+    overlay.style.left = `${session.previewBounds ? desiredLeft : rect.left}px`;
+    overlay.style.top = `${session.previewBounds ? desiredTop : rect.top}px`;
     overlay.style.width = `${rect.width}px`;
     overlay.style.height = `${rect.height}px`;
     overlay.style.opacity = "1";
@@ -415,6 +457,14 @@ export default function ReorderableWidgetGrid({
     const clone = session.source.cloneNode(true) as HTMLElement;
     clone.classList.remove("dragging", "widget-reorder-placeholder");
     clone.classList.add("widget-reorder-lift");
+    clone.removeAttribute("data-widget-shake-preview");
+    clone.style.removeProperty("--widget-shake-x");
+    clone.style.removeProperty("--widget-shake-y");
+    clone.style.removeProperty("--widget-shake-duration");
+    const reduced = prefersReducedMotion();
+    const canAnimateHandoff = Boolean(session.previewBounds && !reduced
+      && typeof overlay.animate === "function" && typeof clone.animate === "function");
+    if (canAnimateHandoff) clone.classList.add("widget-reorder-shake-lift");
     clone.querySelectorAll(".widget-menu").forEach((menu) => menu.remove());
     clone.style.gridColumn = "auto";
     clone.style.gridRow = "auto";
@@ -422,6 +472,12 @@ export default function ReorderableWidgetGrid({
     clone.style.height = "100%";
     clone.style.maxHeight = "none";
     clone.style.transformOrigin = `${session.grabOffsetX}px ${session.grabOffsetY}px`;
+    if (session.previewBounds) {
+      // The captured visual bounds already include the source card's translate
+      // and transform, so the overlay clone starts with a clean effect stack.
+      clone.style.removeProperty("translate");
+      clone.style.removeProperty("transform");
+    }
     copyLiveFormState(session.source, clone);
     overlay.appendChild(clone);
     appShell.appendChild(overlay);
@@ -435,6 +491,46 @@ export default function ReorderableWidgetGrid({
     updateRemoveTargetState(session, true, false);
     setIsReorderSettling(false);
     positionOverlay(session);
+    if (canAnimateHandoff) {
+      const configuredDuration = Number.parseFloat(window.getComputedStyle(clone).getPropertyValue("--wa-transition-ms"));
+      const duration = Number.isFinite(configuredDuration) ? Math.max(0, Math.min(180, configuredDuration)) : 180;
+      if (duration === 0) {
+        clone.classList.remove("widget-reorder-shake-lift");
+      } else {
+        const trackHandoffAnimation = (animation: Animation, onFinish?: () => void) => {
+          session.animations.add(animation);
+          session.handoffAnimations.add(animation);
+          const removeAnimation = () => {
+            session.animations.delete(animation);
+            session.handoffAnimations.delete(animation);
+            if (session.handoffCardAnimation === animation) session.handoffCardAnimation = null;
+          };
+          animation.onfinish = () => {
+            onFinish?.();
+            removeAnimation();
+            animation.onfinish = null;
+            animation.oncancel = null;
+            animation.cancel();
+          };
+          animation.oncancel = removeAnimation;
+        };
+        const offsetX = rect.left - desiredLeft;
+        const offsetY = rect.top - desiredTop;
+        if (offsetX || offsetY) {
+          const positionAnimation = overlay.animate([
+            { transform: `translate3d(${offsetX}px, ${offsetY}px, 0)` },
+            { transform: "translate3d(0, 0, 0)" },
+          ], { duration, easing: "ease-out", fill: "both" });
+          trackHandoffAnimation(positionAnimation);
+        }
+        const scaleAnimation = clone.animate([
+          { transform: "scale(1)" },
+          { transform: "scale(1.025)" },
+        ], { duration, easing: "ease-out", fill: "forwards" });
+        session.handoffCardAnimation = scaleAnimation;
+        trackHandoffAnimation(scaleAnimation, () => clone.classList.remove("widget-reorder-shake-lift"));
+      }
+    }
     setDraggedId(session.draggedId);
     setPreviewMiniStart(session.currentMiniStart);
     latestProps.current.onReorderStart?.();
@@ -442,6 +538,7 @@ export default function ReorderableWidgetGrid({
 
   const animateDrop = useCallback((session: DragSession) => {
     if (sessionRef.current !== session || session.phase !== "settling") return;
+    freezeWidgetShakeHandoff(session);
     const grid = host.current?.querySelector<HTMLElement>(".widget-grid");
     const target = [...(grid?.querySelectorAll<HTMLElement>("[data-widget-id]") ?? [])]
       .find((card) => card.dataset.widgetId === session.draggedId);
@@ -488,8 +585,9 @@ export default function ReorderableWidgetGrid({
     session.animations.add(positionAnimation);
     positionAnimation.onfinish = positionAnimation.oncancel = () => session.animations.delete(positionAnimation);
     if (card && typeof card.animate === "function") {
+      const currentTransform = window.getComputedStyle(card).transform;
       const settleAnimation = card.animate([
-        { transform: "scale(1.025)" },
+        { transform: currentTransform },
         { transform: "scale(1)" },
       ], { duration, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
       session.animations.add(settleAnimation);
@@ -512,7 +610,11 @@ export default function ReorderableWidgetGrid({
     if (session?.phase === "settling") animateDrop(session);
   }, [animateDrop, settleTick]);
 
-  const beginSession = useCallback((event: Pick<PointerEvent, "target" | "button" | "isPrimary" | "pointerId" | "clientX" | "clientY">, activePointer?: PointerEvent) => {
+  const beginSession = useCallback((
+    event: Pick<PointerEvent, "target" | "button" | "isPrimary" | "pointerId" | "clientX" | "clientY">,
+    activePointer?: PointerEvent,
+    previewBounds?: WidgetShakePreviewBounds,
+  ) => {
     if (!latestProps.current.enabled || event.button !== 0 || !event.isPrimary) return;
     const target = event.target instanceof Element ? event.target : null;
     const handle = target?.closest<HTMLElement>("[data-widget-reorder-handle]");
@@ -531,7 +633,7 @@ export default function ReorderableWidgetGrid({
     const sourceItem = items.find((item) => item.instanceId === draggedId);
     if (!draggedId || !sourceItem) return;
 
-    const rect = source.getBoundingClientRect();
+    const rect = previewBounds?.originRect ?? source.getBoundingClientRect();
     const originIds = items.map((item) => item.instanceId);
     const session: DragSession = {
       pointerId: event.pointerId,
@@ -557,11 +659,14 @@ export default function ReorderableWidgetGrid({
       latestY: activePointer?.clientY ?? event.clientY,
       grabOffsetX: event.clientX - rect.left,
       grabOffsetY: event.clientY - rect.top,
+      previewBounds: previewBounds ?? null,
       overlay: null,
       overlayCard: null,
       frame: null,
       listeners: null,
       animations: new Set(),
+      handoffAnimations: new Set(),
+      handoffCardAnimation: null,
       removeTargetActive: false,
       removeTargetOver: false,
     };
@@ -675,9 +780,9 @@ export default function ReorderableWidgetGrid({
     }
   }, [activateSession, cancelResize, cancelSession, itemData, items, layoutKey, processPointer, removePointerListeners, schedulePointer, updateRemoveTargetState, workspaceId]);
 
-  const beginShake = useWidgetShake(`${workspaceId}:${layoutKey}:${itemData}`, !enabled && onCustomize ? (start, current) => {
+  const beginShake = useWidgetShake(`${workspaceId}:${layoutKey}:${itemData}`, !enabled && onCustomize ? (start, current, previewBounds) => {
     flushSync(() => onCustomize());
-    beginSession(start, current);
+    beginSession(start, current, previewBounds);
   } : undefined);
 
   useEffect(() => {

@@ -81,6 +81,23 @@ html[data-motion="reduced"] .reference-ui .today-remove-target-overlay {
   -webkit-user-select: none;
 }
 
+.reference-ui .widget-card[data-widget-shake-preview="true"] {
+  z-index: 30;
+  transition-property: translate;
+  transition-duration: var(--widget-shake-duration, 80ms);
+  transition-timing-function: cubic-bezier(.2, .8, .2, 1);
+}
+
+html[data-motion="reduced"] .reference-ui .widget-card[data-widget-shake-preview="true"] {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reference-ui .widget-card[data-widget-shake-preview="true"] {
+    transition: none;
+  }
+}
+
 .reference-ui .widget-card .widget-resize-handle {
   position: absolute;
   right: -7px;
@@ -216,6 +233,10 @@ html[data-motion="reduced"] .reference-ui .widget-card[data-widget-resize-live="
   rotate: none;
   animation: none !important;
   transition: none !important;
+}
+
+.reference-ui .widget-reorder-overlay > .widget-card.widget-reorder-lift.widget-reorder-shake-lift {
+  transform: scale(1);
 }
 
 html[data-motion="reduced"] .reference-ui .widget-reorder-overlay > .widget-card.widget-reorder-lift {
