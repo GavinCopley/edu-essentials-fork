@@ -113,14 +113,46 @@ async function startMouseDrag(page, widgetId) {
   await page.mouse.down();
   await page.mouse.move(startX + 10, startY + 8, { steps: 2 });
   await page.waitForSelector(".widget-reorder-overlay", { state: "attached", timeout: 3000 });
-  return { startX, startY, offsetX, offsetY };
+  return { startX, startY, offsetX, offsetY, pointerX: startX + 10, pointerY: startY + 8 };
+}
+
+async function removeTargetHostBox(page) {
+  const host = page.locator(".today-remove-target-host");
+  const box = await host.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  });
+  assert.ok(box.width > 0 && box.height > 0, "Today remove target host has a measurable anchor");
+  return { host, box };
+}
+
+function viewportIntersection(box, viewport) {
+  const left = Math.max(0, box.x);
+  const top = Math.max(0, box.y);
+  const right = Math.min(viewport.width, box.x + box.width);
+  const bottom = Math.min(viewport.height, box.y + box.height);
+  return { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
 async function removeTargetBox(page) {
-  const host = page.locator(".today-remove-target-host");
-  const box = await host.boundingBox();
-  assert.ok(box && box.width > 0 && box.height > 0, "Today remove target has a measurable drop area");
-  return { host, box };
+  const { host, box: hostBox } = await removeTargetHostBox(page);
+  const visual = page.locator(".today-remove-target-overlay");
+  const visualBox = await visual.boundingBox();
+  const viewport = page.viewportSize();
+  assert.ok(visualBox && viewport, "Today remove target has a measurable visual drop area");
+  const box = viewportIntersection(visualBox, viewport);
+  assert.ok(box.width > 0 && box.height > 0, "some of the visual drop area is inside the viewport");
+  return { host, hostBox, visual, visualBox, box };
+}
+
+async function activeRemoveTargetBox(page) {
+  // The drawer's active and reduced-motion resting state has no translation.
+  const { host, box: hostBox } = await removeTargetHostBox(page);
+  const viewport = page.viewportSize();
+  assert.ok(viewport);
+  const box = viewportIntersection(hostBox, viewport);
+  assert.ok(box.width > 0 && box.height > 0, "the active resting drop area intersects the viewport");
+  return { host, hostBox, box };
 }
 
 async function moveToRemoveTarget(page) {
@@ -291,6 +323,123 @@ async function verifyNotesConfirmation() {
   } finally { await context.close(); }
 }
 
+async function setSidebarCollapsed(page, collapsed) {
+  const buttonName = collapsed ? "Collapse sidebar" : "Expand sidebar";
+  await page.getByRole("button", { name: buttonName }).click();
+  await page.waitForFunction((nextCollapsed) => {
+    const shell = document.querySelector(".app-shell");
+    return shell?.classList.contains("sidebar-collapsed") === nextCollapsed;
+  }, collapsed);
+  await page.waitForTimeout(450);
+}
+
+async function assertHiddenDrawerLayout(page, sidebarState) {
+  const { box: hostBox } = await removeTargetHostBox(page);
+  const { visualBox, box: visibleBox } = await removeTargetBox(page);
+  const viewport = page.viewportSize();
+  const sidebarBox = await page.locator(".sidebar").boundingBox();
+  assert.ok(viewport && sidebarBox);
+  assert.equal(await page.locator(".today-remove-target-host").evaluate((node) => getComputedStyle(node).position), "fixed");
+  assert.ok(hostBox.width > hostBox.height, "the hidden-Today removal drawer is a wide horizontal rectangle");
+  assert.ok(Math.abs(hostBox.height - 160) < 2, "the drawer keeps its 160px full height");
+  assert.ok(Math.abs(hostBox.y + hostBox.height - viewport.height - 88) < 2, "the drawer host extends 88px below the viewport");
+  assert.ok(Math.abs(hostBox.x - (sidebarBox.x + sidebarBox.width + 12)) < 3, `the ${sidebarState} drawer leaves a 12px gap beside the sidebar`);
+  assert.ok(visualBox.y < viewport.height && visualBox.y + visualBox.height > viewport.height, "the resting visual is partially below the viewport");
+  assert.ok(Math.abs(visibleBox.height - 72) < 3, "the resting drawer exposes about 72px at the bottom edge");
+  assert.ok(Math.abs(visibleBox.y + visibleBox.height - viewport.height) < 1, "the visible drawer edge reaches the viewport bottom");
+}
+
+async function verifyHiddenTodayDrawerGeometry() {
+  for (const sidebarState of ["expanded", "collapsed"]) {
+    const { context, page } = await loadPage();
+    try {
+      await page.getByRole("button", { name: "Today section options" }).click();
+      await page.getByRole("menuitem", { name: "Hide section" }).click();
+      await awaitWriteCount(page, 1);
+      await customize(page);
+      if (sidebarState === "collapsed") await setSidebarCollapsed(page, true);
+      await startMouseDrag(page, "timer-main");
+      await page.waitForFunction(() => getComputedStyle(document.querySelector(".today-remove-target-dock")).opacity === "1");
+      await assertHiddenDrawerLayout(page, sidebarState);
+      const dock = page.locator(".today-remove-target-dock");
+      const { visualBox: restingVisual } = await removeTargetBox(page);
+      const hostRectBefore = await removeTargetHostBox(page);
+      const path = `remove-hidden-today-${sidebarState}-resting.png`;
+      await page.screenshot({ path: resolve(screenshotDir, path), fullPage: false });
+
+      const pointerY = hostRectBefore.box.y - 90;
+      await page.mouse.move(hostRectBefore.box.x - 40, pointerY, { steps: 8 });
+      await page.waitForFunction(() => document.querySelector(".today-remove-target-dock")?.getAttribute("data-remove-target-near") === "true");
+      assert.equal(await dock.getAttribute("data-remove-target-over"), "false", "the near-only point stays above the fully peeked drawer");
+      await page.waitForTimeout(480);
+      const { hostBox: hostAfter, visualBox: peekedVisual } = await removeTargetBox(page);
+      assert.ok(Math.abs(hostAfter.x - hostRectBefore.box.x) < 1 && Math.abs(hostAfter.y - hostRectBefore.box.y) < 1, "proximity leaves the fixed host anchor stable");
+      assert.ok(Math.abs(peekedVisual.x - restingVisual.x) < 1, "proximity does not move the drawer horizontally");
+      assert.ok(Math.abs((restingVisual.y - peekedVisual.y) - 52) < 3, "proximity pulls the visible drawer up about 52px");
+      await page.screenshot({ path: resolve(screenshotDir, `remove-hidden-today-${sidebarState}-near.png`), fullPage: false });
+
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => !document.querySelector(".widget-reorder-overlay"));
+      assert.equal(await writes(page), 1, "inspecting the drawer geometry does not save a drag");
+    } finally { await context.close(); }
+  }
+}
+
+async function sampleTodayHideTransition(page) {
+  return page.evaluate(() => new Promise((resolve) => {
+    const samples = [];
+    let startedAt = null;
+    let settled = false;
+    const snapshot = () => {
+      const host = document.querySelector(".today-remove-target-host.today-remove-target-dock");
+      if (!host) return;
+      if (startedAt === null) startedAt = performance.now();
+      const overlay = host.querySelector(".today-remove-target-overlay");
+      samples.push({
+        elapsed: Math.round(performance.now() - startedAt),
+        hostOpacity: getComputedStyle(host).opacity,
+        overlayOpacity: overlay ? getComputedStyle(overlay).opacity : null,
+        active: host.getAttribute("data-remove-target-active"),
+        dragOverlayPresent: Boolean(document.querySelector(".widget-reorder-overlay")),
+      });
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      observer.disconnect();
+      resolve(samples);
+    };
+    const sampleFrame = () => {
+      snapshot();
+      if (startedAt !== null && performance.now() - startedAt >= 280) finish();
+      else requestAnimationFrame(sampleFrame);
+    };
+    const observer = new MutationObserver(() => {
+      if (document.querySelector(".today-remove-target-host.today-remove-target-dock")) {
+        snapshot();
+        requestAnimationFrame(sampleFrame);
+      }
+    });
+    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+  }));
+}
+
+async function verifyHideTodayWhileCustomizing() {
+  const { context, page } = await loadPage();
+  try {
+    await customize(page);
+    await page.getByRole("button", { name: "Today section options" }).click();
+    const flashSamplesPromise = sampleTodayHideTransition(page);
+    await page.getByRole("menuitem", { name: "Hide section" }).click();
+    await awaitWriteCount(page, 1);
+    const samples = await flashSamplesPromise;
+    assert.ok(samples.length >= 8, `sampled the hidden dock through its first 280ms (${samples.length} samples)`);
+    assert.ok(samples.every((sample) => sample.hostOpacity === "0"), `hidden dock host stays transparent from its first frame: ${JSON.stringify(samples)}`);
+    assert.ok(samples.every((sample) => sample.overlayOpacity === "0"), `hidden dock overlay stays transparent from its first frame: ${JSON.stringify(samples)}`);
+    assert.ok(samples.every((sample) => sample.active === "false" && !sample.dragOverlayPresent), `hiding Today during Customize does not activate a drag: ${JSON.stringify(samples)}`);
+  } finally { await context.close(); }
+}
+
 async function verifyHiddenTodayTarget() {
   const { context, page } = await loadPage();
   try {
@@ -299,20 +448,102 @@ async function verifyHiddenTodayTarget() {
     await page.getByRole("menuitem", { name: "Hide section" }).click();
     await awaitWriteCount(page, writesBeforeHide + 1);
     assert.deepEqual(await page.evaluate(() => window.__widgetFixture.dashboard.h), ["fixture-day"], "hiding Today is saved before the remove interaction");
+    const beforeGeometry = await page.locator('.widget-grid > [data-widget-id="timer-main"]').boundingBox();
     await customize(page);
+    assert.equal(await page.locator(".home-today-panel").count(), 0, "Today stays collapsed during Customize");
+    const afterGeometry = await page.locator('.widget-grid > [data-widget-id="timer-main"]').boundingBox();
+    for (const coordinate of ["x", "y", "width", "height"]) assert.ok(Math.abs(afterGeometry[coordinate] - beforeGeometry[coordinate]) < 2, `entering Customize keeps widget ${coordinate} stable`);
+    await page.getByRole("button", { name: "Workspace options" }).click();
     await page.getByRole("button", { name: "Restore Today section" }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "Workspace options" }).click();
+    const dock = page.locator(".today-remove-target-dock");
+    assert.equal(await dock.evaluate((node) => getComputedStyle(node).opacity), "0", "the dock is faded out before a drag");
     const before = await liveIds(page);
     const beforeWrites = await writes(page);
     await startMouseDrag(page, "timer-main");
-    await moveToRemoveTarget(page);
-    assert.equal(await page.locator(".today-remove-target-content").getAttribute("inert"), "");
-    assert.equal(await page.locator(".today-section-restore").count(), 1, "the hidden Today ghost retains its restore control while dragging");
+    await page.waitForFunction(() => getComputedStyle(document.querySelector(".today-remove-target-dock")).opacity === "1");
+    const { box, hostBox, visualBox: restingVisual } = await removeTargetBox(page);
+    const viewport = page.viewportSize();
+    assert.ok(viewport);
+    assert.ok(hostBox.width > hostBox.height, "the removal dock is a wide horizontal rectangle");
+    assert.ok(box.height < hostBox.height && Math.abs(box.height - 72) < 3, "the active resting drawer exposes about 72px");
+    assert.ok(hostBox.y < viewport.height && hostBox.y + hostBox.height > viewport.height, "the drawer is partially below the viewport");
+    assert.equal(await dock.evaluate((node) => getComputedStyle(node).position), "fixed");
+    // Keep the pointer above the fully peeked drawer edge. Proximity must only advertise removal.
+    await page.mouse.move(hostBox.x + hostBox.width / 2, hostBox.y - 90, { steps: 8 });
+    await page.waitForFunction(() => document.querySelector(".today-remove-target-dock")?.getAttribute("data-remove-target-near") === "true");
+    assert.equal(await dock.getAttribute("data-remove-target-over"), "false", "proximity does not count as a removal drop");
+    assert.equal(await writes(page), beforeWrites, "approaching the dock does not save");
+    await page.waitForTimeout(420);
+    const visual = page.locator(".today-remove-target-overlay");
+    const approachingBox = await visual.boundingBox();
+    assert.ok(approachingBox);
+    assert.ok(Math.abs(approachingBox.y - (restingVisual.y - 52)) < 3, "the drawer moves up 52px as the widget approaches");
+    assert.ok(Math.abs(approachingBox.x - restingVisual.x) < 1, "the drawer keeps its horizontal position during the peek");
+    assert.ok(await visual.evaluate((node) => parseFloat(getComputedStyle(node).borderRadius) > 0), "the dock has rounded corners");
+    const hostAfterPeek = await removeTargetHostBox(page);
+    assert.deepEqual(hostAfterPeek.box, hostBox, "the bounce leaves the proximity host bounds stable");
+    const peekedVisibleBox = (await removeTargetBox(page)).box;
+    const movedHitPoint = { x: hostBox.x + hostBox.width / 2, y: peekedVisibleBox.y + 4 };
+    assert.ok(movedHitPoint.y < hostBox.y, "the drop edge has moved above the fixed host anchor");
+    await page.mouse.move(movedHitPoint.x, movedHitPoint.y, { steps: 2 });
+    await page.waitForFunction(() => document.querySelector(".today-remove-target-dock")?.getAttribute("data-remove-target-over") === "true");
+    assert.equal(await writes(page), beforeWrites, "hovering the animated visible edge stays a preview until release");
+    await page.mouse.move(hostBox.x + hostBox.width / 2, hostBox.y - 90, { steps: 2 });
+    await page.waitForFunction(() => document.querySelector(".today-remove-target-dock")?.getAttribute("data-remove-target-over") === "false");
+    await page.mouse.move(movedHitPoint.x, movedHitPoint.y, { steps: 2 });
+    await page.waitForFunction(() => document.querySelector(".today-remove-target-dock")?.getAttribute("data-remove-target-over") === "true");
+    assert.equal(await page.locator(".home-today-panel").count(), 0, "dragging does not restore Today");
     await page.screenshot({ path: resolve(screenshotDir, "remove-hidden-today-hover.png"), fullPage: false });
     await finishMouseRemoval(page, beforeWrites);
     const expected = before.filter((id) => id !== "timer-main");
-    assert.deepEqual(await savedIds(page), expected, "a hidden Today Customize ghost accepts removal");
-    assert.deepEqual(await page.evaluate(() => window.__widgetFixture.dashboard.h), ["fixture-day"], "removing from the hidden ghost preserves Today’s hidden state");
+    assert.deepEqual(await savedIds(page), expected, "the hidden-Today drawer removes the widget");
+    assert.deepEqual(await page.evaluate(() => window.__widgetFixture.dashboard.h), ["fixture-day"], "removing from the dock preserves Today’s hidden state");
+    await page.waitForFunction(() => getComputedStyle(document.querySelector(".today-remove-target-dock")).opacity === "0");
+    assert.equal(await dock.getAttribute("data-remove-target-near"), "false", "drop resets proximity feedback");
+    await page.getByRole("button", { name: "Workspace options" }).click();
     await page.getByRole("button", { name: "Restore Today section" }).waitFor({ state: "visible" });
+  } finally { await context.close(); }
+}
+
+async function verifyHiddenTodayGesture() {
+  const { context, page } = await loadPage();
+  try {
+    await page.getByRole("button", { name: "Today section options" }).click();
+    await page.getByRole("menuitem", { name: "Hide section" }).click();
+    await awaitWriteCount(page, 1);
+    const before = await liveIds(page);
+    const card = page.locator('.widget-grid > [data-widget-id="timer-main"]');
+    const heading = card.locator(".widget-header h2");
+    await heading.scrollIntoViewIfNeeded();
+    const origin = await page.locator(".workspace-bar").boundingBox();
+    const headingBox = await heading.boundingBox();
+    const x = headingBox.x + headingBox.width / 2;
+    const y = headingBox.y + headingBox.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 80, y);
+    await page.waitForTimeout(160);
+    await page.mouse.move(x + 40, y);
+    await page.waitForTimeout(45);
+    await page.mouse.move(x + 80, y);
+    await page.waitForSelector(".widget-reorder-overlay", { state: "attached" });
+    await page.getByRole("button", { name: "Done customizing" }).waitFor();
+    assert.equal(await page.locator(".home-today-panel").count(), 0, "shake gesture keeps Today hidden");
+    const afterGesture = await page.locator(".workspace-bar").boundingBox();
+    for (const coordinate of ["x", "y"]) assert.ok(Math.abs(afterGesture[coordinate] - origin[coordinate]) < 2, `shake entry leaves workspace ${coordinate} stable`);
+    assert.equal(await page.locator(".today-remove-target-host").getAttribute("data-remove-target-over"), "false", "gesture entry does not put the cursor over removal");
+    const { box: hostBox } = await removeTargetHostBox(page);
+    const releaseY = hostBox.y - 90;
+    await page.mouse.move(hostBox.x - 40, releaseY, { steps: 8 });
+    await page.waitForFunction(() => document.querySelector(".today-remove-target-dock")?.getAttribute("data-remove-target-near") === "true");
+    assert.ok(releaseY < hostBox.y - 52, "the near-only release point stays above the fully peeked drawer edge");
+    assert.equal(await page.locator(".today-remove-target-dock").getAttribute("data-remove-target-over"), "false", "a pointer above the fully peeked edge does not count as a drop");
+    await page.mouse.up();
+    await page.waitForFunction(() => !document.querySelector(".widget-reorder-overlay"));
+    assert.equal(await writes(page), 1, "releasing near the dock does not remove or save");
+    assert.deepEqual(await savedIds(page), before);
+    await page.waitForFunction(() => getComputedStyle(document.querySelector(".today-remove-target-dock")).opacity === "0");
   } finally { await context.close(); }
 }
 
@@ -374,6 +605,9 @@ async function verifyMobileTouchRemoval() {
   const { context, page } = await loadPage({ width: 390, height: 1100, touch: true, reducedMotion: "reduce" });
   let session;
   try {
+    await page.getByRole("button", { name: "Today section options" }).click();
+    await page.getByRole("menuitem", { name: "Hide section" }).click();
+    await awaitWriteCount(page, 1);
     await customize(page);
     const before = await liveIds(page);
     const beforeWrites = await writes(page);
@@ -382,7 +616,7 @@ async function verifyMobileTouchRemoval() {
     await handle.scrollIntoViewIfNeeded();
     const cardBox = await card.boundingBox();
     const handleBox = await handle.boundingBox();
-    const target = await removeTargetBox(page);
+    const target = await activeRemoveTargetBox(page);
     assert.ok(cardBox && handleBox);
     const startX = handleBox.x + handleBox.width / 2;
     const startY = handleBox.y + handleBox.height / 2;
@@ -390,6 +624,7 @@ async function verifyMobileTouchRemoval() {
     await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ id: 1, x: startX, y: startY, radiusX: 2, radiusY: 2, force: 1 }] });
     await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ id: 1, x: startX + 10, y: startY + 8, radiusX: 2, radiusY: 2, force: 1 }] });
     await page.waitForSelector(".widget-reorder-overlay", { state: "attached", timeout: 3000 });
+    await page.waitForFunction(() => document.querySelector(".today-remove-target-dock")?.getAttribute("data-remove-target-active") === "true");
     await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ id: 1, x: target.box.x + target.box.width / 2, y: target.box.y + target.box.height / 2, radiusX: 2, radiusY: 2, force: 1 }] });
     await page.waitForFunction(() => document.querySelector(".today-remove-target-host")?.getAttribute("data-remove-target-over") === "true");
     page.once("dialog", async (dialog) => {
@@ -399,7 +634,7 @@ async function verifyMobileTouchRemoval() {
     await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await awaitWriteCount(page, beforeWrites + 1);
     assert.ok(await page.evaluate(() => window.__widgetFixture.pointerTypes.includes("touch")), "Chrome dispatched touch PointerEvents to the workspace");
-    assert.deepEqual(await savedIds(page), before.filter((id) => id !== "notes-main"), "touch release on Today removes and saves the dragged widget");
+    assert.deepEqual(await savedIds(page), before.filter((id) => id !== "notes-main"), "touch release on the hidden Today dock removes and saves the dragged widget");
     await page.screenshot({ path: resolve(screenshotDir, "remove-touch-saved-board.png"), fullPage: true });
   } finally {
     if (session) await session.detach();
@@ -408,11 +643,14 @@ async function verifyMobileTouchRemoval() {
 }
 
 try {
+  await verifyHideTodayWhileCustomizing();
   await verifySuccessfulRemoval();
   await verifyCancellations();
   await verifyDisabledMode();
   await verifyNotesConfirmation();
+  await verifyHiddenTodayDrawerGeometry();
   await verifyHiddenTodayTarget();
+  await verifyHiddenTodayGesture();
   await verifyLeavingTargetReorders();
   await verifyStaleWorkspaceGuard();
   await verifyReducedMotion();

@@ -337,16 +337,15 @@ test("hiding and restoring Today saves one workspace revision each and preserves
   assert.equal(rootNode.querySelector(".home-today-panel") === null, true, "the hidden state survives reload");
   assert.equal(rootNode.querySelector(".today-section-restore") === null, true, "restore remains tucked away outside Customize after reload");
   await click("Customize");
+  assert.equal(rootNode.querySelector(".home-today-panel"), null, "Today stays collapsed in Customize");
+  assert.equal(rootNode.querySelector('[aria-label="Restore Today section"]'), null, "restore is tucked into Workspace options");
+  await clickAria("Workspace options");
   const restore = buttonAria("Restore Today section");
-  assert.ok(restore.closest(".today-section-restore"), "Customize reveals a full-size outlined restore control");
-  const hiddenPanel = rootNode.querySelector(".home-today-panel.today-section-hidden");
-  assert.ok(hiddenPanel, "Customize keeps the panel footprint for the restore control");
-  const ghost = hiddenPanel.querySelector(".today-section-ghost");
-  assert.equal(ghost.getAttribute("aria-hidden"), "true", "the visual ghost is omitted from the accessible tree");
-  assert.equal(ghost.hasAttribute("inert"), true, "ghost controls cannot receive focus or input");
-  assert.equal(ghost.querySelector('[aria-label="Today section options"]') === null, true, "the hidden ghost has no reachable options trigger");
+  assert.ok(restore.closest(".workspace-menu"), "Workspace options contains the restore action");
   await clickAria("Restore Today section");
   await waitUntil(() => rootNode.querySelector(".home-today-panel"), "restored Today panel");
+  await waitUntil(() => document.activeElement === buttonAria("Today section options"), "restoring focuses Today options");
+  assert.equal(rootNode.querySelector(".workspace-menu"), null, "restoring closes Workspace options");
   await waitForWrite(2);
   assert.notEqual(activeWorkspace().todayHidden, true, "restoring removes the hidden state");
 
@@ -360,6 +359,23 @@ test("hiding and restoring Today saves one workspace revision each and preserves
   assert.deepEqual(saved.study.grades, study.grades);
   assert.equal(saved.study.dailyMinutes, study.dailyMinutes);
   assert.equal(rootNode.querySelector('[data-widget-id="notes-day"] textarea')?.value, "Saved notes");
+});
+
+test("hiding Today while customizing moves focus to Workspace options and restores through its menu", async () => {
+  reset(); installServer(); await render();
+  await waitUntil(() => rootNode.querySelector(".home-today-panel"), "Today panel");
+  await click("Customize");
+  await clickAria("Today section options");
+  await click("Hide section", rootNode.querySelector(".today-section-menu"));
+  await waitUntil(() => !rootNode.querySelector(".home-today-panel"), "collapsed Today");
+  await waitUntil(() => document.activeElement === buttonAria("Workspace options"), "focus moves to Workspace options");
+  await waitForWrite(1);
+  await clickAria("Workspace options");
+  assert.ok(buttonAria("Restore Today section").closest(".workspace-menu"));
+  await clickAria("Restore Today section");
+  await waitUntil(() => rootNode.querySelector(".home-today-panel"), "restored Today");
+  await waitForWrite(2);
+  assert.equal(rootNode.querySelector(".today-remove-target-dock"), null, "visible Today uses its original removal target");
 });
 
 test("workspace copies retain Today content and visibility, new workspaces start visible, and deletion prunes the hidden ID", async () => {

@@ -250,17 +250,12 @@ try {
     assert.equal(await page.evaluate(() => window.__todayFixture.writes), writesBeforeHide + 1, "reload reads the saved visibility without an extra write");
 
     await page.getByRole("button", { name: "Customize" }).click();
+    assert.equal(await panel.count(), 0, "Today remains collapsed in Customize");
+    assert.equal(await page.getByRole("button", { name: "Restore Today section" }).count(), 0, "restore is tucked into Workspace options");
+    await page.getByRole("button", { name: "Workspace options" }).click();
     const restore = page.getByRole("button", { name: "Restore Today section" });
     await restore.waitFor({ state: "visible" });
-    const outline = await page.locator(".today-section-hidden").evaluate((element) => getComputedStyle(element).outlineStyle);
-    assert.equal(outline, "dashed", "Customize marks the hidden section with the existing dashed outline");
-    const hiddenGeometry = await restore.boundingBox();
-    assert.ok(hiddenGeometry, `restore placeholder has a layout box at ${scenario.width}px`);
-    for (const [coordinate, before, after] of [
-      ["x", visibleGeometry.x, hiddenGeometry.x],
-      ["width", visibleGeometry.width, hiddenGeometry.width],
-      ["height", visibleGeometry.height, hiddenGeometry.height],
-    ]) assert.ok(Math.abs(before - after) <= 2, `${coordinate} matches visible Today geometry at ${scenario.width}px (${before} vs ${after})`);
+    assert.equal(await restore.evaluate((element) => Boolean(element.closest(".workspace-menu"))), true, "restore appears in the three-dot menu");
     if (scenario.restore === "keyboard") {
       await restore.focus();
       await page.keyboard.press("Enter");

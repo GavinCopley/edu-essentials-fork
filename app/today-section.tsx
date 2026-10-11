@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight, EyeOff, MoreHorizontal, Pencil, X } from "lucide-react";
 import { defaultTodaySections, todaySectionOptions, type TodaySectionId } from "../lib/today-sections";
 
 type TodaySectionProps = {
   hidden: boolean;
-  customizing: boolean;
   sections: TodaySectionId[];
   children: ReactNode;
   onHiddenChange: (hidden: boolean) => boolean;
@@ -15,12 +14,12 @@ type TodaySectionProps = {
   onCalendar: () => void;
   onOptionsOpen: () => void;
   onHideFocus?: () => void;
+  optionsButtonRef?: RefObject<HTMLButtonElement | null>;
   menuStyle?: CSSProperties;
 };
 
 export default function TodaySection({
   hidden,
-  customizing,
   sections,
   children,
   onHiddenChange,
@@ -28,6 +27,7 @@ export default function TodaySection({
   onCalendar,
   onOptionsOpen,
   onHideFocus,
+  optionsButtonRef,
   menuStyle,
 }: TodaySectionProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -36,13 +36,19 @@ export default function TodaySection({
   const [applyError, setApplyError] = useState<string | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const localTriggerRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = optionsButtonRef ?? localTriggerRef;
   const menuRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const applyingRef = useRef(false);
   const sectionRef = useRef<HTMLElement>(null);
   const focusLastItemOnOpenRef = useRef(false);
   const focusOnOpenRef = useRef(false);
+
+  const setTriggerRef = useCallback((element: HTMLButtonElement | null) => {
+    localTriggerRef.current = element;
+    if (optionsButtonRef) optionsButtonRef.current = element;
+  }, [optionsButtonRef]);
 
   const setSectionElement = useCallback((element: HTMLElement | null) => {
     sectionRef.current = element;
@@ -60,7 +66,7 @@ export default function TodaySection({
     focusOnOpenRef.current = false;
     setMenuOpen(false);
     if (returnFocus) triggerRef.current?.focus();
-  }, []);
+  }, [triggerRef]);
 
   const closeEditor = (returnFocus = false) => {
     setEditorOpen(false);
@@ -142,7 +148,7 @@ export default function TodaySection({
     };
     document.addEventListener("pointerdown", dismissOutside, true);
     return () => document.removeEventListener("pointerdown", dismissOutside, true);
-  }, [menuOpen, closeMenu]);
+  }, [menuOpen, closeMenu, triggerRef]);
 
   useLayoutEffect(() => {
     if (!menuOpen) return;
@@ -171,7 +177,7 @@ export default function TodaySection({
       window.removeEventListener("resize", placeMenu);
       document.removeEventListener("scroll", placeMenu, true);
     };
-  }, [menuOpen, portalTarget]);
+  }, [menuOpen, portalTarget, triggerRef]);
 
   useLayoutEffect(() => {
     if (!menuOpen || !menuPosition || !focusOnOpenRef.current) return;
@@ -201,7 +207,7 @@ export default function TodaySection({
     };
     focusFrame = window.requestAnimationFrame(focusWhenVisible);
     return () => window.cancelAnimationFrame(focusFrame);
-  }, [menuOpen, menuPosition, portalTarget]);
+  }, [menuOpen, menuPosition, portalTarget, triggerRef]);
 
   const openMenu = (focusLastItem = false) => {
     setMenuPosition(null);
@@ -253,33 +259,7 @@ export default function TodaySection({
     onHideFocus?.();
   };
 
-  const restore = () => {
-    if (!onHiddenChange(false)) return;
-    window.requestAnimationFrame(() => triggerRef.current?.focus());
-  };
-
-  if (hidden && !customizing) return null;
-
-  if (hidden) {
-    return (
-      <section className="home-today-panel today-section-hidden" aria-label="Hidden Today section">
-        <div className="today-section-ghost" aria-hidden="true" inert>
-          <header className="today-panel-header">
-            <h2>Today</h2>
-            <div className="today-panel-actions">
-              <button className="today-panel-link" tabIndex={-1}>View calendar <ArrowRight size={14} /></button>
-              <button className="icon-button" tabIndex={-1} aria-hidden="true"><MoreHorizontal size={22} /></button>
-            </div>
-          </header>
-          {children}
-        </div>
-        <button type="button" className="today-section-restore" aria-label="Restore Today section" onClick={restore}>
-          <span>Today</span>
-          <strong>Restore</strong>
-        </button>
-      </section>
-    );
-  }
+  if (hidden) return null;
 
   return (
     <section ref={setSectionElement} className="home-today-panel" aria-labelledby="today-panel-title">
@@ -288,7 +268,7 @@ export default function TodaySection({
         <div className="today-panel-actions">
           <button className="today-panel-link" onClick={onCalendar}>View calendar <ArrowRight size={14} /></button>
           <button
-            ref={triggerRef}
+            ref={setTriggerRef}
             type="button"
             className="icon-button"
             aria-label="Today section options"

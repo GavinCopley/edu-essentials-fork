@@ -267,11 +267,6 @@
 .reference-ui .notes-widget .save-note { margin-left: auto; border-radius: calc(6 * var(--ui-unit)); color: white; background: linear-gradient(130deg, #6473ff, #394bed); display: flex; gap: calc(7 * var(--ui-unit)); align-items: center; min-height: calc(30 * var(--ui-unit)); padding: calc(5 * var(--ui-unit)) calc(10 * var(--ui-unit)); font-size: calc(12 * var(--ui-unit)); }
 .reference-ui .notes-widget .clear-note { width: calc(24 * var(--ui-unit)); display: grid; place-items: center; color: #a4b8df; }
 .reference-ui.is-customizing .widget-card { outline: 1px dashed #627db7; }
-.reference-ui.is-customizing .today-section-hidden { border-color: transparent; background: transparent; box-shadow: none; outline: 1px dashed #627db7; outline-offset: 2px; }
-.reference-ui .today-section-restore { background: transparent; color: #dce5fc; }
-.reference-ui .today-section-restore:hover { background: #10233c66; }
-.reference-ui .today-section-restore > span { color: #b8cbf7; font-size: calc(13 * var(--ui-unit)); }
-.reference-ui .today-section-restore > strong { border: 1px solid #345184; border-radius: calc(7 * var(--ui-unit)); background: #19325c66; padding: calc(6 * var(--ui-unit)) calc(13 * var(--ui-unit)); font-size: calc(12 * var(--ui-unit)); font-weight: 650; }
 .today-section-menu { max-height: calc(100vh - 24px); overflow-y: auto; }
 .reference-ui .today-section-editor {
   width: min(100%, 520px);
