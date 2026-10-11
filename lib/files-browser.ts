@@ -16,7 +16,29 @@ export type FilesBrowserPreferences = {
   sortDirection?: FilesBrowserSortDirection;
   fileType?: FilesBrowserFileType;
   includeArchived?: boolean;
+  appearanceVersion?: 2;
 };
+
+export const FILES_BROWSER_APPEARANCE_VERSION = 2 as const;
+
+export const DEFAULT_FILES_BROWSER_PREFERENCES: FilesBrowserPreferences = {
+  filter: "all",
+  view: "grid",
+  sortBy: "modified",
+  sortDirection: "desc",
+  appearanceVersion: FILES_BROWSER_APPEARANCE_VERSION,
+};
+
+export function migrateFilesBrowserPreferences(preferences: FilesBrowserPreferences): FilesBrowserPreferences {
+  if (preferences.appearanceVersion === FILES_BROWSER_APPEARANCE_VERSION) return preferences;
+  return {
+    ...preferences,
+    view: "grid",
+    sortBy: "modified",
+    sortDirection: "desc",
+    appearanceVersion: FILES_BROWSER_APPEARANCE_VERSION,
+  };
+}
 
 export type FilesBrowserOptions = {
   query?: string;

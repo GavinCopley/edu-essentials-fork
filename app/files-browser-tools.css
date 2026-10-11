@@ -1,47 +1,81 @@
 .reference-ui .files-browser-tools {
   display: grid;
-  grid-template-columns: minmax(190px, 1.4fr) repeat(4, minmax(110px, .8fr)) auto;
-  align-items: end;
-  gap: calc(8 * var(--ui-unit));
-  border-bottom: 1px solid #1c3453;
-  padding: calc(10 * var(--ui-unit)) calc(13 * var(--ui-unit));
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+  padding: 0 38px;
 }
-.reference-ui .files-browser-tools > label { display: grid; min-width: 0; gap: calc(4 * var(--ui-unit)); color: #92aace; font-size: calc(9 * var(--ui-unit)); }
-.reference-ui .files-browser-tools select,
+.reference-ui .files-browser-search-row { display: flex; min-width: 0; align-items: center; }
+.reference-ui .files-browser-search { display: block; min-width: 0; flex: 1 1 auto; }
+.reference-ui .files-tools-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
 .reference-ui .files-browser-search-control {
+  display: flex;
   width: 100%;
   min-width: 0;
-  min-height: calc(32 * var(--ui-unit));
-  border: 1px solid #2a456c;
-  border-radius: calc(6 * var(--ui-unit));
-  background: #0d1e34;
-  color: #e0e9fb;
+  min-height: 52px;
+  align-items: center;
+  gap: 15px;
+  border: 1px solid #375c98;
+  border-radius: 11px;
+  background: linear-gradient(110deg, #10223b73, #0e1e3573);
+  padding: 0 16px 0 20px;
+  color: #9ab6e5;
+  box-shadow: inset 0 1px 7px #5a84c710, 0 4px 25px #020b1829;
+  backdrop-filter: blur(3px);
 }
-.reference-ui .files-browser-tools select { padding: 0 calc(8 * var(--ui-unit)); font: inherit; font-size: calc(10 * var(--ui-unit)); }
-.reference-ui .files-browser-search-control { display: flex; align-items: center; gap: calc(6 * var(--ui-unit)); padding: 0 calc(8 * var(--ui-unit)); }
-.reference-ui .files-browser-search-control > svg { flex: 0 0 auto; color: #8da6cc; }
-.reference-ui .files-browser-search-control input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #e0e9fb; font: inherit; font-size: calc(11 * var(--ui-unit)); }
-.reference-ui .files-browser-search-control input::placeholder { color: #7188a9; }
+.reference-ui .files-browser-search-control > svg { flex: 0 0 auto; color: #9bb8eb; }
+.reference-ui .files-browser-search-control input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #e5edff; font: inherit; font-size: 16px; }
+.reference-ui .files-browser-search-control input::placeholder { color: #8099c1; }
 .reference-ui .files-browser-search-control input::-webkit-search-cancel-button { display: none; }
-.reference-ui .files-browser-search-control:focus-within,
-.reference-ui .files-browser-tools select:focus-visible,
-.reference-ui .files-browser-sort-direction:focus-visible { outline: 2px solid #91a8ff; outline-offset: 1px; }
-.reference-ui .files-browser-search-control button { display: grid; width: calc(23 * var(--ui-unit)); height: calc(23 * var(--ui-unit)); flex: 0 0 auto; place-items: center; border: 0; border-radius: calc(4 * var(--ui-unit)); background: transparent; color: #a9c2ef; cursor: pointer; }
+.reference-ui .files-browser-search-control:focus-within { border-color: #6689e6; outline: 2px solid #91a8ff8c; outline-offset: 1px; box-shadow: 0 0 24px #376fe533; }
+.reference-ui .files-browser-search-control button { display: grid; width: 27px; height: 27px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 5px; background: transparent; color: #b2c7ed; cursor: pointer; }
 .reference-ui .files-browser-search-control button:hover { background: #203958; color: #fff; }
-.reference-ui .files-browser-sort-direction { display: inline-flex; min-height: calc(32 * var(--ui-unit)); align-items: center; justify-content: center; gap: calc(5 * var(--ui-unit)); border: 1px solid #2a456c; border-radius: calc(6 * var(--ui-unit)); background: #112540; padding: 0 calc(8 * var(--ui-unit)); color: #c8d8f3; font: inherit; font-size: calc(9 * var(--ui-unit)); cursor: pointer; white-space: nowrap; }
-.reference-ui .files-browser-sort-direction:hover:not(:disabled) { border-color: #5472a5; background: #193153; color: #fff; }
-.reference-ui .files-browser-sort-direction:disabled,
-.reference-ui .files-browser-search-control button:disabled { opacity: .5; cursor: not-allowed; }
-.reference-ui .files-browser-include-archived { display: flex !important; min-height: calc(32 * var(--ui-unit)); align-items: center; gap: calc(6 * var(--ui-unit)) !important; white-space: nowrap; }
-.reference-ui .files-browser-include-archived input { width: calc(14 * var(--ui-unit)); height: calc(14 * var(--ui-unit)); margin: 0; accent-color: #8494ff; }
-
-@media (max-width: 1100px) {
-  .reference-ui .files-browser-tools { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
-  .reference-ui .files-browser-search { grid-column: span 2; }
+.reference-ui .files-search-shortcut { flex: 0 0 auto; border: 1px solid #375c98; border-radius: 5px; background: #142947; padding: 4px 7px; color: #a8c1e9; font: inherit; font-size: 11px; white-space: nowrap; }
+.reference-ui .files-browser-advanced-toggle { display: inline-flex; width: 34px; min-height: 34px; flex: 0 0 auto; align-items: center; justify-content: center; gap: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; padding: 0; color: #9ab6e5; font: inherit; font-size: 12px; cursor: pointer; }
+.reference-ui .files-browser-advanced-toggle:hover,
+.reference-ui .files-browser-advanced-toggle[aria-expanded="true"] { border-color: #5275b0; background: #152c4b; color: #fff; }
+.reference-ui .files-browser-advanced-toggle > span { display: none; }
+.reference-ui .files-browser-advanced-toggle:focus-visible { outline: 2px solid #91a8ff; outline-offset: 2px; }
+.reference-ui .files-browser-filter-caret { color: #8fa9d4; font-size: 16px; line-height: 1; }
+.reference-ui .files-browser-filter-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  align-items: end;
+  gap: 9px;
+  border: 1px solid #203858;
+  border-radius: 9px;
+  background: #0d1e34ed;
+  padding: 11px;
 }
-@media (max-width: 650px) {
-  .reference-ui .files-browser-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: calc(9 * var(--ui-unit)); }
-  .reference-ui .files-browser-search { grid-column: 1 / -1; }
-  .reference-ui .files-browser-sort-direction { justify-content: flex-start; }
-  .reference-ui .files-browser-include-archived { grid-column: 1 / -1; }
+.reference-ui .files-browser-filter-controls[hidden] { display: none; }
+.reference-ui .files-browser-filter-controls > label { display: grid; min-width: 0; gap: 4px; color: #92aace; font-size: 10px; }
+.reference-ui .files-browser-filter-controls select,
+.reference-ui .files-browser-sort-direction {
+  width: 100%;
+  min-width: 0;
+  min-height: 33px;
+  border: 1px solid #2a456c;
+  border-radius: 6px;
+  background: #0d1e34;
+  padding: 0 8px;
+  color: #e0e9fb;
+  font: inherit;
+  font-size: 11px;
+}
+.reference-ui .files-browser-filter-controls select:focus-visible,
+.reference-ui .files-browser-sort-direction:focus-visible { outline: 2px solid #91a8ff; outline-offset: 1px; }
+.reference-ui .files-browser-sort-direction { display: inline-flex; align-items: center; justify-content: flex-start; gap: 6px; background: #112540; color: #c8d8f3; white-space: nowrap; cursor: pointer; }
+.reference-ui .files-browser-sort-direction:hover:not(:disabled) { border-color: #5472a5; background: #193153; color: #fff; }
+.reference-ui .files-browser-sort-direction:disabled { opacity: .5; cursor: not-allowed; }
+.reference-ui .files-browser-include-archived { display: flex !important; min-height: 33px; align-items: center; gap: 6px !important; white-space: nowrap; }
+.reference-ui .files-browser-include-archived input { width: 14px; height: 14px; margin: 0; accent-color: #8494ff; }
+@media (max-width: 900px) {
+  .reference-ui .files-browser-tools { padding: 0 24px; }
+}
+@media (max-width: 600px) {
+  .reference-ui .files-browser-tools { padding: 0 16px; }
+  .reference-ui .files-browser-search-row { align-items: stretch; }
+  .reference-ui .files-browser-search-control { min-height: 48px; padding: 0 10px 0 13px; }
+  .reference-ui .files-browser-advanced-toggle { min-height: 34px; align-self: center; }
+  .reference-ui .files-browser-filter-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

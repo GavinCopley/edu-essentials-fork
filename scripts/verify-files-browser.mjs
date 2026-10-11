@@ -311,7 +311,7 @@ try {
     await page.getByRole("button", { name: "Open folder: BIO 201" }).click();
     await page.getByRole("button", { name: "Open folder: Labs" }).click();
     await page.getByRole("button", { name: "New" }).click();
-    await page.getByRole("menu", { name: "New actions" }).getByRole("menuitem", { name: "Upload file", exact: true }).click();
+    await page.getByRole("menu", { name: "New actions" }).getByRole("menuitem", { name: "Upload files", exact: true }).click();
     const uploads = await page.evaluate(() => window.__filesBrowserFixture.callbacks.uploads);
     assert.deepEqual(uploads, [{ folderId: "course-labs", courseId: "biology" }]);
 

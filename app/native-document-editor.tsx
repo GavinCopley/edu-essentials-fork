@@ -390,7 +390,12 @@ export function NativeDocumentEditor({ profileId, file, create, canWrite, onSave
       return;
     }
     if (event.key !== "Tab" || !dialogRef.current) return;
-    const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href]")];
+    const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]")]
+      .filter((element) => {
+        if (element.closest("[hidden], [inert], [aria-hidden='true']")) return false;
+        const style = getComputedStyle(element);
+        return style.display !== "none" && style.visibility !== "hidden";
+      });
     if (!focusable.length) return;
     const first = focusable[0], last = focusable[focusable.length - 1];
     if (!focusable.includes(document.activeElement as HTMLElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
@@ -414,11 +419,11 @@ export function NativeDocumentEditor({ profileId, file, create, canWrite, onSave
                           : status === "dirty" ? "Changes will save shortly"
                             : "Ready";
 
-  return <div className="files-dialog-backdrop native-document-backdrop">
+  return <div className="files-dialog-backdrop native-document-backdrop files-action-sheet-backdrop">
     {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- The modal handles Escape, save shortcuts, and keyboard focus trapping. */}
-    <section ref={dialogRef} className="files-details-dialog native-document-dialog" role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="native-document-title" aria-describedby="native-document-help" onKeyDown={handleDialogKeyDown}>
+    <section ref={dialogRef} className="files-details-dialog native-document-dialog files-action-sheet" role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="native-document-title" aria-describedby="native-document-help" onKeyDown={handleDialogKeyDown}>
       <div className="files-details-heading native-document-heading">
-        <div><p>Plain text document</p><h2 ref={titleRef} id="native-document-title" tabIndex={-1}>Edit text file</h2></div>
+        <div><p>Plain text document</p><h2 ref={titleRef} id="native-document-title" tabIndex={-1}>{identity.create ? "Text document" : "Edit text file"}</h2></div>
         <button type="button" className="files-icon-button" aria-label="Close text editor" disabled={operationBusy} onClick={closeEditor}><X size={18} /></button>
       </div>
 

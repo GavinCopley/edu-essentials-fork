@@ -10,6 +10,7 @@ for (const name of ["window", "document", "Element", "Node", "HTMLElement", "HTM
 }
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
 Object.defineProperty(globalThis, "crypto", { configurable: true, value: webcrypto });
+globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 Object.defineProperty(dom.window, "requestAnimationFrame", { configurable: true, value: (callback) => setTimeout(() => callback(Date.now()), 0) });
 Object.defineProperty(dom.window, "cancelAnimationFrame", { configurable: true, value: (id) => clearTimeout(id) });

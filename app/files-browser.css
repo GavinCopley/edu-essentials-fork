@@ -592,3 +592,286 @@
   .reference-ui .files-view-nav button,
   .reference-ui .files-item { transition: none; }
 }
+
+/* Files reference surface */
+.reference-ui .files-browser { min-height: 100%; padding: 0; color-scheme: dark; }
+.reference-ui .files-browser-layout { grid-template-columns: minmax(220px, 232px) minmax(0, 1fr); align-items: stretch; gap: 0; min-height: 100dvh; }
+.reference-ui .files-sidebar {
+  min-width: 0;
+  min-height: 100%;
+  border-right: 1px solid #18304f;
+  background: linear-gradient(180deg, #09192ce8 0%, #09182bce 58%, #08172bdd 100%);
+  padding: 48px 24px 24px;
+}
+.reference-ui .files-browser-header { display: grid; width: 100%; min-height: 0; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 21px; margin: 0 0 17px; padding: 0; }
+.reference-ui .files-browser-title h1 { color: #eff4ff; font-size: 26px; line-height: 1.2; letter-spacing: -.4px; }
+.reference-ui .files-browser-header-actions { display: grid; width: 100%; align-items: stretch; gap: 9px; }
+.reference-ui .files-browser-header .files-new-button { width: 100%; min-width: 0; min-height: 54px; align-self: stretch; justify-content: center; border-radius: 15px; background: linear-gradient(125deg, #596aff, #333fea); font-size: 15px; box-shadow: 0 7px 24px #334aff37, inset 0 1px 3px #c4cbff30; }
+.reference-ui .files-view-nav { display: grid; gap: 0; overflow: visible; border: 0; border-radius: 0; background: transparent; padding: 0; }
+.reference-ui .files-view-primary,
+.reference-ui .files-view-secondary { display: grid; gap: 3px; }
+.reference-ui .files-view-nav button {
+  position: relative;
+  min-width: 0;
+  min-height: 49px;
+  justify-content: flex-start;
+  gap: 15px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #d1def4;
+  font-size: 14px;
+}
+.reference-ui .files-view-nav button svg { color: #afc5e9; }
+.reference-ui .files-view-nav button:hover { background: #122843; color: #fff; }
+.reference-ui .files-view-nav button.is-active { border-color: #304b8d; background: linear-gradient(110deg, #273acc, #3048ea); color: #fff; box-shadow: inset 0 0 7px #8b91ff45; }
+.reference-ui .files-view-primary > button.is-active { border-color: transparent; background: transparent; box-shadow: none; color: #f0f4ff; }
+.reference-ui .files-view-nav button.is-active::before { position: absolute; top: 6px; bottom: 6px; left: -11px; width: 4px; border-radius: 999px; background: #7685ff; content: ""; }
+.reference-ui .files-view-nav button.is-active svg { color: #eff3ff; }
+.reference-ui .files-nav-disclosure > svg:last-child { width: 15px; margin-left: auto; transition: transform .15s ease; }
+.reference-ui .files-nav-disclosure > svg:last-child.is-expanded { transform: rotate(180deg); }
+.reference-ui .files-course-links { display: grid; gap: 2px; padding: 0 0 5px 34px; }
+.reference-ui .files-course-links button { overflow: hidden; min-width: 0; min-height: 34px; border: 0; border-radius: 5px; background: transparent; padding: 0 8px; color: #93add3; font-size: 12px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.reference-ui .files-course-links button:hover { background: #122843; color: #fff; }
+.reference-ui .files-course-links p { margin: 2px 8px 8px; color: #839bbd; font-size: 11px; }
+.reference-ui .files-sidebar-pinned { display: grid; gap: 3px; margin: 16px 0 21px; border-bottom: 1px solid #203858; padding: 0 0 19px; }
+.reference-ui .files-sidebar-pinned h2 { display: flex; min-height: 34px; align-items: center; gap: 11px; margin: 0; color: #a9c0e6; font-size: 12px; font-weight: 550; }
+.reference-ui .files-sidebar-pinned h2 svg { color: #afc5e9; }
+.reference-ui .files-view-nav .files-pinned-folder,
+.reference-ui .files-view-nav .files-pin-folder-action { min-height: 37px; gap: 11px; border-radius: 6px; padding: 0 8px 0 12px; color: #b6c9e9; font-size: 12px; }
+.reference-ui .files-view-nav .files-pinned-folder svg,
+.reference-ui .files-view-nav .files-pin-folder-action svg { flex: 0 0 auto; color: #9db6df; }
+.reference-ui .files-view-nav .files-pinned-folder span,
+.reference-ui .files-view-nav .files-pin-folder-action span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reference-ui .files-view-nav .files-pinned-folder.is-current { background: #142a48; color: #fff; }
+.reference-ui .files-view-nav .files-pin-folder-action { color: #aec3e8; }
+.reference-ui .files-pinned-picker { display: grid; max-height: 210px; overflow-y: auto; gap: 2px; border: 1px solid #29466b; border-radius: 7px; background: #0c1d32; padding: 5px; }
+.reference-ui .files-view-nav .files-pinned-picker button { min-height: 32px; font-size: 11px; }
+.reference-ui .files-pinned-picker p { margin: 5px 7px; color: #8ea6c8; font-size: 10px; line-height: 1.4; }
+.reference-ui .files-view-secondary { border-top: 1px solid #203858; padding-top: 16px; }
+.reference-ui .files-view-secondary button { min-height: 48px; }
+.reference-ui .files-browser-content { min-width: 0; min-height: 100dvh; overflow: visible; border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0; }
+.reference-ui .files-browser-content.is-external-drop-target { outline: 2px dashed #91a7ff; outline-offset: -3px; background: #3148d80c; }
+.reference-ui .files-readonly-note { margin: 12px 38px 0; }
+.reference-ui .files-content-heading { min-height: 59px; margin: 21px 30px 0; border: 0; padding: 0 9px; }
+.reference-ui .files-content-heading h2 { color: #f0f4ff; font-size: 30px; font-weight: 700; }
+.reference-ui .files-content-title-line { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 20px; }
+.reference-ui .files-content-tagline { color: #a9c1e9; font-size: 16px; }
+.reference-ui .files-content-heading .files-breadcrumbs { margin-top: 4px; }
+.reference-ui .files-content-heading-actions { gap: 12px; }
+.reference-ui .files-quick-sort select { min-width: 150px; min-height: 36px; border: 1px solid #29466e; border-radius: 8px; background: #10223b; padding: 0 11px; color: #deebff; font: inherit; font-size: 12px; }
+.reference-ui .files-quick-sort select:focus-visible { outline: 2px solid #91a8ff; outline-offset: 2px; }
+.reference-ui .files-layout-toggle { border-color: #29446e; background: #0c1b30; }
+.reference-ui .files-layout-toggle button { width: 35px; height: 33px; }
+.reference-ui .files-content-heading-actions > .files-secondary-button { min-height: 36px; }
+.reference-ui .files-browser-content > .files-browser-tools + .files-content-heading { margin-top: 19px; }
+.reference-ui .files-state-panel { margin: 14px 30px; border: 1px solid #203858; border-radius: 10px; background: #0c1c31ad; }
+.reference-ui .files-items { padding: 0 30px 20px; }
+.reference-ui .files-items.is-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 14px 19px; padding: 0 30px 26px; }
+.reference-ui .files-items.is-grid .files-item.is-folder { grid-column: auto; display: grid; grid-template-columns: minmax(0, 1fr) 38px; grid-template-rows: 1fr; min-height: 82px; align-items: center; border: 1px solid #365b91; border-radius: 12px; background: linear-gradient(110deg, #102743de, #10223add); padding: 10px 15px; box-shadow: inset 0 0 12px #4886ca10, 0 4px 17px #020a1533; }
+.reference-ui .files-items.is-grid .files-item.is-folder:hover { border-color: #4c75b2; background: #142c4a; }
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-main { grid-column: 1; grid-row: 1; }
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-main small { color: #9eb7de; }
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-icon { width: 51px; height: 51px; border: 0; border-radius: 9px; color: var(--file-item-accent); background: color-mix(in srgb, var(--file-item-accent) 24%, #10223b); }
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-icon svg { width: 36px; height: 36px; fill: color-mix(in srgb, var(--file-item-accent) 72%, transparent); stroke: color-mix(in srgb, var(--file-item-accent) 92%, white); }
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-menu-trigger { grid-column: 2; grid-row: 1; }
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-course,
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-modified,
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-size,
+.reference-ui .files-items.is-grid .files-item.is-folder .files-status,
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-select-spacer { display: none; }
+.reference-ui .files-items.is-grid .files-item.is-file { display: grid; grid-template-columns: minmax(0, 1fr) 32px 31px; grid-template-rows: 184px minmax(44px, auto) 21px; column-gap: 3px; row-gap: 4px; min-height: 0; align-content: start; border: 1px solid #486fa8; border-radius: 16px; background: linear-gradient(150deg, #122746, #0c1b31); padding: 5px; box-shadow: inset 0 1px 3px #91b7ff52, inset 0 0 16px #488aff20, 0 5px 20px #020a1533; }
+.reference-ui .files-items.is-grid .files-item.is-file:hover { border-color: #8aabff; background: linear-gradient(150deg, #173153, #0d2039); box-shadow: 0 0 21px #4a78e34a, inset 0 0 14px #80a7ff2d; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-card-preview { grid-column: 1 / -1; grid-row: 1; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid #334f79; border-radius: 11px; background: #10233c; padding: 0; cursor: pointer; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-card-preview:focus-visible { outline: 2px solid #90a7ff; outline-offset: -2px; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-main { grid-column: 1; grid-row: 2; min-height: 43px; gap: 8px; align-self: center; padding: 2px 4px; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-icon { width: 32px; height: 34px; border: 0; border-radius: 7px; color: var(--file-type-accent, #a6c4f4); background: color-mix(in srgb, var(--file-type-accent, #a6c4f4) 22%, #10213a); }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-icon svg { width: 26px; height: 26px; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-title { min-width: 0; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-title strong { font-size: 14px; font-weight: 580; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-title small,
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-course,
+.reference-ui .files-items.is-grid .files-item.is-file .files-status,
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-select-spacer { display: none; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-modified { grid-column: 1; grid-row: 3; padding-left: 43px; color: #a5bbdf; font-size: 11px; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-size { grid-column: 2; grid-row: 3; justify-self: end; color: #a5bbdf; font-size: 11px; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-star-trigger,
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-menu-trigger { grid-row: 2; align-self: center; justify-self: center; width: 31px; height: 31px; color: #a9bfdf; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-star-trigger { grid-column: 2; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-menu-trigger { grid-column: 3; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-star-trigger:hover:not(:disabled),
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-star-trigger[aria-pressed="true"] { color: #c9d6ff; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-star-trigger:disabled { opacity: .5; cursor: not-allowed; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-select { position: absolute; z-index: 2; top: 13px; left: 13px; width: 24px; height: 24px; border: 1px solid #6f8db8; border-radius: 6px; background: #0d1e34d9; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-select input { width: 15px; height: 15px; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-select,
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-select { position: absolute; z-index: 2; top: 13px; left: 13px; width: 24px; height: 24px; border: 1px solid #6f8db8; border-radius: 6px; background: #0d1e34d9; opacity: 0; pointer-events: none; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-select input,
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-select input { width: 15px; height: 15px; }
+.reference-ui .files-items.is-grid .files-item.is-file:hover .files-item-select,
+.reference-ui .files-items.is-grid .files-item.is-file:focus-within .files-item-select,
+.reference-ui .files-items.is-grid .files-item.is-file.is-selected .files-item-select,
+.reference-ui .files-items.is-grid .files-item.is-folder:hover .files-item-select,
+.reference-ui .files-items.is-grid .files-item.is-folder:focus-within .files-item-select,
+.reference-ui .files-items.is-grid .files-item.is-folder.is-selected .files-item-select { opacity: 1; pointer-events: auto; }
+.reference-ui .files-card-preview-content iframe { pointer-events: none; }
+.reference-ui .files-empty-welcome { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, .94fr); grid-template-rows: minmax(0, auto) auto; align-items: center; gap: 16px 16px; margin: 95px 66px 0 88px; }
+.reference-ui .files-empty-copy { position: relative; z-index: 1; min-width: 0; }
+.reference-ui .files-empty-copy h2 { margin: 0; color: #f0f3fb; font-size: clamp(43px, 4.2vw, 72px); font-weight: 750; letter-spacing: -.025em; line-height: 1.09; }
+.reference-ui .files-empty-copy h2 span { background: linear-gradient(95deg, #ddf8ff 0%, #75d4f6 62%, #36b4e5 100%); background-clip: text; color: transparent; }
+.reference-ui .files-empty-copy p { margin: 25px 0 34px; color: #afc5eb; font-size: clamp(16px, 1.28vw, 21px); line-height: 1.5; }
+.reference-ui .files-empty-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
+.reference-ui .files-empty-actions .files-new-button { min-width: 216px; min-height: 70px; border-radius: 13px; font-size: 16px; box-shadow: 0 8px 29px #364cfa54, inset 0 1px 4px #d1d4ff29; }
+.reference-ui .files-empty-folder-action { display: inline-flex; min-height: 55px; align-items: center; gap: 12px; border: 1px solid transparent; border-radius: 9px; background: transparent; padding: 0 18px; color: #d2e0fa; font: inherit; font-size: 16px; cursor: pointer; }
+.reference-ui .files-empty-folder-action:hover:not(:disabled) { border-color: #355680; background: #102440; color: #fff; }
+.reference-ui .files-empty-folder-action:disabled { opacity: .45; cursor: not-allowed; }
+.reference-ui .files-empty-folder-action svg { color: #bad0f5; }
+.reference-ui .files-empty-art { display: block; width: min(100%, 510px); aspect-ratio: 4 / 3; max-height: 400px; justify-self: center; background: transparent; opacity: .86; filter: drop-shadow(0 12px 23px #167bff2d); }
+.reference-ui .files-empty-drop-hint { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(30px, 1fr) auto minmax(30px, 1fr); align-items: center; gap: 31px; margin: 33px 12px 0; color: #9eb8eb; }
+.reference-ui .files-empty-drop-hint > span { height: 1px; border-top: 1px dashed #7da3e79c; }
+.reference-ui .files-empty-drop-hint > svg { grid-column: 2; grid-row: 1; color: #9bb6f3; stroke-width: 1.8; }
+.reference-ui .files-empty-drop-hint p { grid-column: 1 / -1; margin: -22px 0 0; color: #bbcff1; font-size: 15px; text-align: center; }
+.reference-ui .files-populated-drop-hint { display: grid; grid-template-columns: minmax(24px, 1fr) auto auto minmax(24px, 1fr); align-items: center; gap: 14px; margin: 4px 28px 27px; color: #9eb8eb; }
+.reference-ui .files-populated-drop-hint > span { height: 1px; border-top: 1px dashed #7da3e79c; }
+.reference-ui .files-populated-drop-hint > span:first-child { grid-column: 1; grid-row: 1; }
+.reference-ui .files-populated-drop-hint > span:last-of-type { grid-column: 4; grid-row: 1; }
+.reference-ui .files-populated-drop-hint > svg { grid-column: 2; grid-row: 1; color: #9bb6f3; stroke-width: 1.8; }
+.reference-ui .files-populated-drop-hint p { grid-column: 3; grid-row: 1; margin: 0; color: #bbcff1; font-size: 14px; text-align: center; white-space: nowrap; }
+.reference-ui .files-browser-content.is-empty-welcome > .files-browser-tools { margin-top: 162px; }
+.reference-ui .files-browser-content.is-empty-welcome .files-browser-advanced-toggle { background: transparent; }
+.reference-ui .files-browser-content.is-empty-welcome .files-empty-welcome { margin-top: 54px; }
+.reference-ui .files-context-menu-separator { height: 1px; margin: 5px 7px; background: #294363; }
+.reference-ui:has(.files-action-sheet-backdrop, .files-upload-dialog, .file-organization-dialog, .native-document-dialog) .files-empty-welcome { grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 35px; text-align: center; }
+.reference-ui:has(.files-action-sheet-backdrop, .files-upload-dialog, .file-organization-dialog, .native-document-dialog) .files-empty-copy { display: contents; }
+.reference-ui:has(.files-action-sheet-backdrop, .files-upload-dialog, .file-organization-dialog, .native-document-dialog) .files-empty-copy h2 { grid-row: 1; font-size: clamp(36px, 4vw, 54px); }
+.reference-ui:has(.files-action-sheet-backdrop, .files-upload-dialog, .file-organization-dialog, .native-document-dialog) .files-empty-copy p { grid-row: 2; margin: 7px 0 4px; }
+.reference-ui:has(.files-action-sheet-backdrop, .files-upload-dialog, .file-organization-dialog, .native-document-dialog) .files-empty-art { grid-row: 3; width: min(100%, 260px); max-height: 220px; }
+.reference-ui:has(.files-action-sheet-backdrop, .files-upload-dialog, .file-organization-dialog, .native-document-dialog) .files-empty-actions { grid-row: 4; justify-content: center; }
+.reference-ui:has(.files-action-sheet-backdrop, .files-upload-dialog, .file-organization-dialog, .native-document-dialog) .files-empty-drop-hint { grid-row: 5; margin-top: 7px; }
+@media (max-width: 1180px) {
+  .reference-ui .files-items.is-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reference-ui .files-empty-welcome { grid-template-columns: minmax(0, 1fr) minmax(260px, .8fr); margin-left: 52px; margin-right: 34px; }
+  .reference-ui .files-empty-art { max-height: 340px; }
+}
+@media (max-width: 900px) {
+  .reference-ui .files-browser-layout { grid-template-columns: minmax(0, 1fr); }
+  .reference-ui .files-sidebar { border-right: 0; border-bottom: 1px solid #18304f; padding: 18px 20px 12px; }
+  .reference-ui .files-browser-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+  .reference-ui .files-browser-header .files-new-button { width: auto; min-width: 145px; min-height: 42px; }
+  .reference-ui .files-view-nav { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .reference-ui .files-view-primary { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 4px; }
+  .reference-ui .files-view-nav button { min-height: 41px; }
+  .reference-ui .files-view-nav button.is-active::before { top: auto; right: 9px; bottom: -2px; left: 9px; width: auto; height: 3px; }
+  .reference-ui .files-sidebar-pinned { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 5px; flex: 1 1 100%; margin: 7px 0; border: 0; border-top: 1px solid #203858; padding: 8px 0 0; }
+  .reference-ui .files-sidebar-pinned h2 { min-height: 37px; }
+  .reference-ui .files-view-secondary { display: flex; border: 0; padding: 0; }
+  .reference-ui .files-view-secondary button { min-height: 41px; }
+  .reference-ui .files-course-links { flex: 1 1 100%; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); padding-left: 0; }
+  .reference-ui .files-browser-content.is-empty-welcome > .files-browser-tools { margin-top: 60px; }
+  .reference-ui .files-empty-welcome { margin-top: 62px; }
+  .reference-ui .files-items.is-grid { padding-right: 22px; padding-left: 22px; }
+}
+@media (max-width: 600px) {
+  .reference-ui .files-sidebar { padding: 12px 14px 9px; }
+  .reference-ui .files-browser-header { align-items: center; }
+  .reference-ui .files-browser-title h1 { font-size: 22px; }
+  .reference-ui .files-browser-header .files-new-button { min-width: 115px; min-height: 38px; }
+  .reference-ui .files-view-nav { display: grid; grid-template-columns: 1fr; }
+  .reference-ui .files-view-primary { flex-wrap: nowrap; overflow-x: auto; }
+  .reference-ui .files-view-nav button { flex: 0 0 auto; min-height: 38px; gap: 8px; padding: 0 8px; font-size: 12px; }
+  .reference-ui .files-sidebar-pinned { grid-template-columns: 1fr auto; }
+  .reference-ui .files-sidebar-pinned h2 { grid-column: 1 / -1; }
+  .reference-ui .files-sidebar-pinned .files-pinned-folder { max-width: 180px; }
+  .reference-ui .files-pinned-picker { grid-column: 1 / -1; }
+  .reference-ui .files-view-secondary { overflow-x: auto; }
+  .reference-ui .files-view-secondary button { min-width: 112px; }
+  .reference-ui .files-browser-content.is-empty-welcome > .files-browser-tools { margin-top: 34px; }
+  .reference-ui .files-empty-welcome { grid-template-columns: 1fr; gap: 3px; margin: 43px 18px 0; text-align: center; }
+  .reference-ui .files-empty-copy h2 { font-size: clamp(39px, 11vw, 54px); }
+  .reference-ui .files-empty-copy p { margin: 15px 0 21px; font-size: 16px; }
+  .reference-ui .files-empty-actions { justify-content: center; gap: 5px; }
+  .reference-ui .files-empty-actions .files-new-button { min-width: 185px; min-height: 54px; }
+  .reference-ui .files-empty-folder-action { min-height: 45px; font-size: 14px; }
+  .reference-ui .files-empty-art { grid-row: 2; width: min(83%, 300px); max-height: 255px; }
+  .reference-ui .files-empty-drop-hint { grid-row: 3; gap: 15px; margin: 18px 0 0; }
+  .reference-ui .files-empty-drop-hint p { margin-top: -16px; font-size: 12px; }
+  .reference-ui .files-content-heading { margin: 16px 14px 0; flex-wrap: wrap; }
+  .reference-ui .files-content-heading h2 { font-size: 20px; }
+  .reference-ui .files-items.is-grid { grid-template-columns: 1fr; gap: 10px; padding: 0 14px 20px; }
+  .reference-ui .files-items.is-grid .files-item.is-folder { min-height: 68px; }
+  .reference-ui .files-items.is-grid .files-item.is-file { grid-template-rows: auto 56px; }
+  .reference-ui .files-items.is-grid .files-item.is-folder .files-item-main { grid-column: 1; grid-row: 1; }
+  .reference-ui .files-readonly-note { margin-right: 16px; margin-left: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reference-ui .files-nav-disclosure > svg:last-child { transition: none; }
+  .reference-ui .files-browser-advanced-toggle,
+  .reference-ui .files-items.is-grid .files-item { transition: none; }
+}
+
+/* Reference spacing and card proportions shared by the Files states. */
+.reference-ui .files-context-menu { font-size: 14px; }
+.reference-ui .files-new-menu { width: min(242px, calc(100vw - 16px)); border-radius: 12px; padding: 6px; background: linear-gradient(145deg, #10233b, #0b1b30); }
+.reference-ui .files-new-menu button { min-height: 46px; gap: 22px; padding: 8px 15px; font-size: 16px; font-weight: 400; }
+.reference-ui .files-new-menu button > svg { width: 23px; height: 23px; }
+.reference-ui .files-new-menu button:focus { background: linear-gradient(110deg, #2d3b83, #203573); box-shadow: inset 0 0 9px #7a80ff4a; }
+.reference-ui .files-new-menu .files-context-menu-separator { margin: 13px 6px; }
+.reference-ui .files-card-metadata { display: block; margin-top: 5px; color: #a7bff0; font-size: 13px; font-weight: 400; line-height: 1.3; }
+.reference-ui .files-items.is-grid > .is-folder + .is-file { grid-column: 1; }
+.reference-ui .files-items.is-grid .files-item.is-file { grid-template-rows: auto 56px; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-title strong { font-size: 16px; font-weight: 500; }
+.reference-ui .files-items.is-grid .files-item.is-file :is(.files-item-modified, .files-item-size) { display: none; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-main { min-height: 52px; }
+.reference-ui .files-items.is-grid .files-item-star-trigger { border: 0; border-radius: 7px; background: transparent; padding: 0; cursor: pointer; }
+.reference-ui .files-items.is-grid .files-item-star-trigger svg { width: 23px; height: 23px; }
+.reference-ui .files-grid-more-icon { transform: rotate(90deg); }
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-title strong { font-size: 16px; font-weight: 550; }
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-title small { margin-top: 7px; font-size: 13px; }
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-icon { background: transparent; }
+.reference-ui .files-items.is-grid .files-item.is-folder .files-item-icon svg { width: 51px; height: 51px; fill: var(--file-item-accent); stroke: var(--file-item-accent); }
+@media (min-width: 901px) {
+  .reference-ui .files-sidebar { padding: 51px 24px 24px 32px; }
+  .reference-ui .files-browser-header { margin-bottom: 21px; }
+  .reference-ui .files-view-nav button { font-size: 16px; }
+  .reference-ui .files-view-nav button > svg { width: 22px; height: 22px; }
+  .reference-ui .files-sidebar-pinned { margin-top: 21px; margin-bottom: 0; padding-bottom: 24px; }
+  .reference-ui .files-sidebar-pinned h2 { font-size: 13px; font-weight: 400; }
+  .reference-ui .files-view-nav .files-pin-folder-action { font-size: 16px; }
+  .reference-ui .files-view-secondary { border-top: 0; padding-top: 20px; }
+  .reference-ui .files-browser-content:not(.is-empty-welcome) > .files-browser-tools { padding: 74px 26px 0; }
+  .reference-ui .files-content-heading { min-height: 61px; margin: 10px 28px 0; padding: 0; }
+  .reference-ui .files-browser-content > .files-browser-tools + .files-content-heading { margin-top: 10px; }
+  .reference-ui .files-content-heading-actions { gap: 14px; }
+  .reference-ui .files-layout-toggle { order: 0; }
+  .reference-ui .files-layout-toggle button { width: 43px; height: 42px; }
+  .reference-ui .files-layout-toggle button.is-active { background: linear-gradient(140deg, #5869ff, #293cf3); box-shadow: inset 0 0 8px #a9bfff90, 0 0 14px #344dff55; }
+  .reference-ui .files-quick-sort select { min-width: 160px; min-height: 46px; font-size: 14px; }
+  .reference-ui .files-items.is-grid { gap: 18px 22px; padding: 0 28px 24px; }
+  .reference-ui .files-empty-drop-hint { margin: 53px 0 0; }
+  .reference-ui:has(.files-action-sheet-backdrop) .files-browser-content.is-empty-welcome > .files-browser-tools { margin-top: 120px; padding-right: 30px; padding-left: 24px; }
+  .reference-ui:has(.files-action-sheet-backdrop) .files-browser-search-control { min-height: 48px; }
+  .reference-ui:has(.files-action-sheet-backdrop) .files-empty-welcome { margin: 58px 32px 0 38px; text-align: left; }
+  .reference-ui:has(.files-action-sheet-backdrop) .files-empty-copy h2 { font-size: 56px; }
+  .reference-ui:has(.files-action-sheet-backdrop) .files-empty-copy p { margin: 16px 0 4px; }
+  .reference-ui:has(.files-action-sheet-backdrop) .files-empty-actions { margin-top: 4px; }
+  .reference-ui:has(.files-action-sheet-backdrop) .files-empty-actions .files-new-button { min-height: 60px; }
+  .reference-ui:has(.files-action-sheet-backdrop) .files-empty-drop-hint { margin-top: 22px; }
+}
+
+.reference-ui .files-search-shortcut { font-size: 14px; }
+.reference-ui .files-layout-toggle button[aria-label="Grid view"] { order: -1; }
+.reference-ui .files-layout-toggle button svg { width: 21px; height: 21px; }
+.reference-ui .files-items.is-grid .files-item.is-file .files-item-icon { background: var(--file-type-accent, #a6c4f4); color: #fff; }
+.reference-ui .files-items.is-grid .files-item.is-file { border-color: #486fa8; box-shadow: inset 0 1px 3px #91b7ff70, inset 0 0 10px #488aff22, 0 5px 20px #020a1533; }
+
+.reference-ui .files-items.is-grid .files-item.is-file .files-card-preview { width: 100%; height: auto; min-height: clamp(168px, 16vw, 216px); aspect-ratio: 16 / 9; align-self: start; }
+
+/* The supplied transparent illustration is displayed as a complete image. */
+.reference-ui .files-items.is-grid .files-item.is-file .files-status:not(.is-ready) { position: absolute; z-index: 3; top: 14px; right: 14px; display: inline-flex; max-width: calc(100% - 54px); border-color: #786644; background: #1a2030eb; padding: 5px 9px; font-size: 11px; box-shadow: 0 2px 9px #06102080; }
+.reference-ui .files-items.is-grid .files-item.is-folder .files-status.is-deleting { position: absolute; z-index: 2; top: 8px; right: 49px; display: inline-flex; max-width: calc(100% - 72px); border-color: #59404a; background: #382335ed; padding: 4px 8px; font-size: 10px; }
+@media (max-width: 600px) {
+  .reference-ui .files-populated-drop-hint { grid-template-columns: minmax(12px, 1fr) auto minmax(12px, 1fr); gap: 10px; margin-right: 14px; margin-left: 14px; }
+  .reference-ui .files-populated-drop-hint > span:last-of-type { grid-column: 3; }
+  .reference-ui .files-populated-drop-hint p { grid-column: 1 / -1; grid-row: 2; margin-top: -5px; font-size: 12px; }
+}
+.reference-ui .files-empty-art { background-image: url("/files-empty-illustration.png"); background-size: contain; background-position: center; background-repeat: no-repeat; }

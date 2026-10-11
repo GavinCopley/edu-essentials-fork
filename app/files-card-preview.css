@@ -1,0 +1,39 @@
+.reference-ui .files-card-preview-content {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  place-items: center;
+  background: radial-gradient(ellipse at 50% 0%, #284975 0%, #122845 66%, #0d1e34 100%);
+  color: #a8c2ed;
+}
+.reference-ui .files-card-preview-content img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  object-fit: cover;
+  background: #fff;
+}
+.reference-ui .files-card-preview-content img.files-card-pdf-preview { object-position: top center; }
+.reference-ui .files-card-preview-content pre {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  margin: 0;
+  background: linear-gradient(145deg, #101d32, #0a1729);
+  padding: 18px 20px;
+  color: #d8e6ff;
+  font: 500 12px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.reference-ui .files-card-preview-content.is-loading { background: linear-gradient(145deg, #132743, #0b1a2e); }
+.reference-ui .files-card-preview-loading { width: 27px; height: 27px; border: 2px solid #45648f; border-top-color: #a8c2ff; border-radius: 50%; animation: files-card-spin .9s linear infinite; }
+.reference-ui .files-card-preview-fallback { display: grid; width: 100%; height: 100%; align-content: center; justify-items: center; gap: 9px; background: linear-gradient(145deg, color-mix(in srgb, var(--preview-fallback-accent) 20%, #132945), #0d1e34); color: #c6d9ff; text-align: center; }
+.reference-ui .files-card-preview-fallback > svg { width: 52px; height: 52px; border: 1px solid color-mix(in srgb, var(--preview-fallback-accent) 62%, #426795); border-radius: 14px; background: color-mix(in srgb, var(--preview-fallback-accent) 22%, #1a365b); padding: 10px; color: var(--preview-fallback-accent); }
+.reference-ui .files-card-preview-fallback strong { color: var(--preview-fallback-accent); font-size: 14px; font-weight: 650; letter-spacing: .04em; }
+.reference-ui .files-card-preview-fallback small { color: #9bb5dc; font-size: 12px; }
+@keyframes files-card-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .reference-ui .files-card-preview-loading { animation-duration: 2s; } }

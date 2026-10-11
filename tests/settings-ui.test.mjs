@@ -11,6 +11,14 @@ class TestAnimationEvent extends dom.window.Event {
 Object.defineProperty(dom.window, "AnimationEvent", { configurable: true, value: TestAnimationEvent });
 for (const name of ["window", "document", "Element", "HTMLElement", "HTMLFormElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent", "AnimationEvent", "MutationObserver"]) globalThis[name] = dom.window[name];
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
+globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+// jsdom has no viewport. Keep lazy card thumbnails offscreen so these
+// integration tests count deliberate preview reads; the browser harness
+// separately verifies real thumbnail visibility and rendering.
+globalThis.IntersectionObserver = class OffscreenThumbnailObserver {
+  observe() { /* No layout intersections in this fixture. */ }
+  disconnect() { /* No observation resources to release. */ }
+};
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -116,6 +124,16 @@ function field(label) {
   const scope = rootNode.querySelector(".academic-editor") ?? rootNode;
   const node = [...scope.querySelectorAll("label")].find((node) => node.textContent.startsWith(label));
   assert.ok(node, `Missing field ${label}`); return node.querySelector("input,select,textarea");
+}
+function uploadChooser() {
+  const input = rootNode.querySelector('.files-upload-dialog input[type="file"]');
+  assert.ok(input, "The upload panel retains its file picker behind Choose files");
+  return input;
+}
+async function returnToFilesRoot() {
+  const button = [...rootNode.querySelectorAll(".files-view-nav button")].find((node) => node.textContent.trim() === "Files");
+  assert.ok(button, "Files view navigation is available");
+  await act(async () => { button.click(); });
 }
 async function edit(label, value) {
   const input = field(label);
@@ -573,7 +591,7 @@ test("native document creation, draft protection, retry and reload integrate wit
     await click("Files");
     await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder");
     await clickAria(`Open folder: ${sampleCourse.code}`);
-    await click("New"); await click("New text file");
+    await click("New"); await click("Text document");
     await waitUntil(() => rootNode.querySelector(".native-document-fields input:not(:disabled)"), "durable empty document opens in editor");
     await waitUntil(() => activityOpens.length === 1, "created native document Recent acknowledgement");
     assert.equal(creates.length, 1); assert.equal(creates[0].folderId, folderId); assert.equal(creates[0].courseId, sampleCourse.id);
@@ -2520,12 +2538,83 @@ test("private files UI retains upload retries, restores file preferences, search
     assert.match(rootNode.textContent, /Unique private reading/);
     await edit('File class filter', 'personal'); await edit('File view', 'grid'); await saveAndReload();
     await click('Files'); assert.equal(field('File class filter').value, 'personal'); assert.equal(field('File view').value, 'grid');
-    assert.deepEqual(server.dashboard.d.filePreferences, { filter: 'personal', view: 'grid' });
+    assert.deepEqual(server.dashboard.d.filePreferences, {
+      filter: 'personal', view: 'grid', sortBy: 'modified', sortDirection: 'desc', appearanceVersion: 2,
+    });
     await click('Search'); const search = rootNode.querySelector('[aria-label="Search everything"]');
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(search, 'Unique private reading'); search.dispatchEvent(new window.Event('input', { bubbles: true })); });
     const result = rootNode.querySelector('.search-results button'); assert.ok(result); await act(async () => result.click());
     assert.match(rootNode.textContent, /Actual bytes/); assert.ok(rootNode.querySelector('a[download][href*="account=profile-a"]'));
   } finally { filesFetcher = undefined; if (root) await unmount(); }
+});
+
+test("legacy Files appearance preferences migrate on edit, preserve an explicit List choice, and validate the version marker", async () => {
+  reset();
+  const legacyPreferences = { filter: "all", view: "list", sortBy: "name" };
+  const initial = { ...savedDashboard, d: { ...savedDashboard.d, filePreferences: legacyPreferences } };
+  const server = installWorkspaceServer(initial, [sampleCourse]);
+  const migrationFile = {
+    id: "55555555-5555-4555-8555-555555555555", name: "Migration sample.pdf", mime_type: "application/pdf", size_bytes: 12,
+    course_id: null, assignment_id: null, kind: "resource", state: "ready", created_at: "2026-10-01T00:00:00.000Z",
+    updated_at: "2026-10-01T00:00:00.000Z", content_sha256: null, folder_id: null, content_backend: "object",
+    metadata_revision: 1, content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null,
+  };
+  filesFetcher = async (url) => {
+    if (url.startsWith("/api/files?view=active")) return Response.json({ files: [migrationFile], activities: { files: [] } });
+    if (url.startsWith("/api/files?view=trash")) return Response.json({ files: [], activities: { files: [] } });
+    if (url.startsWith("/api/file-folders")) return Response.json({ folders: [], activities: { folders: [] } });
+    throw new Error(`Unexpected preference migration request: ${url}`);
+  };
+
+  try {
+    await render(Workspace, { initialProfile: baseProfile, filesBrowserEnabled: true });
+    await click("Files");
+    await waitUntil(() => rootNode.querySelector(".files-browser"), "Files browser route for markerless preferences");
+    window.history.replaceState({}, "", "/files?layout=list");
+    await waitForMilliseconds(0);
+    await waitUntil(() => rootNode.querySelector(".files-layout-toggle"), "Files browser for markerless saved Files preferences");
+    assert.ok(rootNode.querySelector(".files-items.is-grid"), `markerless list preference should render grid; current Files UI: ${rootNode.textContent.slice(0, 500)}`);
+    assert.equal(rootNode.querySelector('.files-layout-toggle button[aria-label="Grid view"]').getAttribute("aria-pressed"), "true");
+    assert.deepEqual(server.dashboard.d.filePreferences, legacyPreferences, "displaying the migration does not rewrite the legacy workspace payload");
+    assert.equal(server.writes, 0, "the default upgrade does not autosave before a preference edit");
+
+    await clickAria("Filters");
+    await edit("File type", "pdf");
+    await waitForWorkspaceSave(server);
+    assert.deepEqual(server.dashboard.d.filePreferences, {
+      filter: "all", view: "grid", sortBy: "modified", sortDirection: "desc", fileType: "pdf", appearanceVersion: 2,
+    }, "the first preference edit keeps the user's filter and persists the new defaults");
+    assert.equal(new URL(window.location.href).searchParams.get("layout"), "grid", "the first edit replaces the legacy list URL with grid");
+
+    const writesBeforeList = server.writes;
+    await clickAria("List view");
+    await waitForWorkspaceSave(server, writesBeforeList);
+    assert.equal(server.dashboard.d.filePreferences.view, "list");
+    assert.equal(server.dashboard.d.filePreferences.appearanceVersion, 2);
+
+    const writesBeforeReload = server.writes;
+    await saveAndReload({ filesBrowserEnabled: true });
+    await click("Files");
+    await waitUntil(() => rootNode.querySelector(".files-items.is-list"), "saved explicit List layout after reload");
+    assert.equal(rootNode.querySelector('.files-layout-toggle button[aria-label="List view"]').getAttribute("aria-pressed"), "true");
+    assert.equal(server.dashboard.d.filePreferences.view, "list");
+    assert.equal(server.dashboard.d.filePreferences.appearanceVersion, 2);
+    assert.equal(server.writes, writesBeforeReload, "loading the explicit List preference does not create another workspace revision");
+
+    const versionedPreferences = { filter: "all", view: "grid", sortBy: "modified", sortDirection: "desc", appearanceVersion: 2 };
+    const decodePreferences = (filePreferences) => decodeWorkspaceState({
+      ...savedDashboard,
+      d: { ...savedDashboard.d, filePreferences },
+    }).data.filePreferences;
+    assert.deepEqual(decodePreferences(versionedPreferences), versionedPreferences, "the workspace codec round-trips appearance version 2");
+    assert.deepEqual(decodePreferences(legacyPreferences), legacyPreferences, "markerless legacy preferences remain valid input");
+    for (const appearanceVersion of [0, 1, 3, "2", null]) {
+      assert.throws(() => decodePreferences({ ...versionedPreferences, appearanceVersion }), /Invalid file preferences/, `the workspace codec rejects appearance version ${String(appearanceVersion)}`);
+    }
+  } finally {
+    filesFetcher = undefined;
+    if (root) await unmount();
+  }
 });
 
 test("real Files preferences save with academic data while temporary search is discarded on reload", async () => {
@@ -2552,14 +2641,17 @@ test("real Files preferences save with academic data while temporary search is d
     await render(Workspace, { initialProfile: profile, filesBrowserEnabled: true });
     await click("Files");
     await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder for preferences");
+    await clickAria("Filters");
     await edit("Course filter", sampleCourse.id);
     await edit("File type", "pdf");
     await edit("Sort by", "modified");
+    await clickAria("Sort descending");
+    assert.equal(rootNode.querySelector('[aria-label="Sort ascending"]').textContent.trim(), "Ascending");
     await clickAria("Sort ascending");
     await edit("Include archived", true);
     await clickAria("Grid view");
 
-    const expected = { filter: sampleCourse.id, view: "grid", sortBy: "modified", sortDirection: "desc", fileType: "pdf", includeArchived: true };
+    const expected = { filter: sampleCourse.id, view: "grid", sortBy: "modified", sortDirection: "desc", fileType: "pdf", includeArchived: true, appearanceVersion: 2 };
     const writesBeforePreferences = server.writes;
     await waitForWorkspaceSave(server, writesBeforePreferences);
     assert.deepEqual(server.dashboard.d.filePreferences, expected);
@@ -2578,6 +2670,7 @@ test("real Files preferences save with academic data while temporary search is d
     await saveAndReload({ initialProfile: profile, filesBrowserEnabled: true });
     await click("Files");
     await waitUntil(() => rootNode.querySelector('[aria-label="Search files"]'), "Files tools after workspace reload");
+    await clickAria("Filters");
     assert.equal(rootNode.querySelector('[aria-label="Search files"]').value, "", "a reload clears the temporary query");
     assert.equal(field("Course filter").value, sampleCourse.id);
     assert.equal(field("File type").value, "pdf");
@@ -2674,9 +2767,9 @@ test("real Files activity records successful upload previews and native reads/sa
     assert.equal(openActions.length, 0, "a failed read does not create a Recent record");
     await click("Close file preview");
 
-    await click("New"); await click("Upload file");
+    await click("New"); await click("Upload files");
     const selectedUpload = new File(["Uploaded bytes"], "Uploaded notes.txt", { type: "text/plain" });
-    const chooser = field("Choose files");
+    const chooser = uploadChooser();
     await act(async () => { Object.defineProperty(chooser, "files", { configurable: true, value: [selectedUpload] }); chooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
     await waitUntil(() => uploadXhr.requests.length === 1, "failed upload attempt starts");
     const firstUpload = uploadXhr.requests[0];
@@ -2699,7 +2792,7 @@ test("real Files activity records successful upload previews and native reads/sa
     assert.deepEqual(uploadIds, [uploadedId, uploadedId], "the successful upload retries the same reserved file ID");
     assert.equal(openActions.length, 0, "a successful upload alone is not a file open");
 
-    await click("Close uploads");
+    await clickAria("Close upload panel");
     await clickAria("Preview file: Uploaded notes.txt");
     await waitUntil(() => rootNode.querySelector(".syllabus-source")?.textContent === "Uploaded bytes", "uploaded file bytes read successfully");
     await waitUntil(() => openActions.length === 1, "uploaded preview Recent acknowledgement");
@@ -2707,7 +2800,7 @@ test("real Files activity records successful upload previews and native reads/sa
     await waitUntil(() => rootNode.querySelector(`[aria-label="Preview file: Uploaded notes.txt"]`), "uploaded file in Recent");
     assert.equal(rootNode.querySelector(`[aria-label="Preview file: ${failedPreview.name}"]`), null, "failed preview is absent from Recent");
 
-    await click("My files"); await clickAria(`Open folder: ${sampleCourse.code}`);
+    await returnToFilesRoot(); await clickAria(`Open folder: ${sampleCourse.code}`);
     await clickAria("More options for Uploaded notes.txt"); await click("Rename file");
     await edit("Name", "Uploaded renamed.txt"); await click("Rename");
     await waitUntil(() => !rootNode.querySelector(".file-organization-dialog"), "successful uploaded file rename");
@@ -2839,7 +2932,7 @@ test("real course archive uses a captured editable term label and unarchives wit
     await click("Unarchive folder");
     await waitUntil(() => !rootNode.querySelector(".file-archive-dialog"), "course unarchive succeeds");
     assert.equal(folder.archived_at, null); assert.equal(folder.semester_label, null);
-    await click("My files");
+    await returnToFilesRoot();
     await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "unarchived course in My files");
 
     assert.deepEqual(server.dashboard, workspaceBeforeArchive.dashboard, "archive and unarchive do not rewrite workspace data");
@@ -2904,8 +2997,8 @@ test("Workspace multi-file uploads retain independent retries, block account act
     await click("Files");
     await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder for multi-file upload");
     await clickAria(`Open folder: ${sampleCourse.code}`);
-    await click("New"); await click("Upload file");
-    const chooser = field("Choose files");
+    await click("New"); await click("Upload files");
+    const chooser = uploadChooser();
     await act(async () => {
       Object.defineProperty(chooser, "files", { configurable: true, value: [failedFile, successfulFile, oversizedFile] });
       chooser.dispatchEvent(new window.Event("change", { bubbles: true }));
@@ -2933,12 +3026,12 @@ test("Workspace multi-file uploads retain independent retries, block account act
     assert.match(oversizedRow.querySelector(".files-upload-error").textContent, /25 MiB/);
     assert.equal(activityActions.length, 0, "upload completion alone never marks a file Recent");
 
-    await click("Close uploads");
-    assert.equal(rootNode.querySelector('[role="dialog"][aria-label="Upload files"]'), null, "closing the chooser leaves its queue mounted in Workspace");
+    await clickAria("Close upload panel");
+    assert.equal(rootNode.querySelector('[role="dialog"][aria-labelledby="files-upload-title"]'), null, "closing the chooser leaves its queue mounted in Workspace");
     await click("Recent");
     await waitUntil(() => rootNode.querySelector(".files-state-panel h3")?.textContent === "No recent files", "empty Recent view before a real open");
     assert.doesNotMatch(rootNode.querySelector(".files-browser-content").textContent, /Open me\.txt/);
-    await clickIn(rootNode.querySelector('.files-view-nav'), "My files");
+    await clickIn(rootNode.querySelector('.files-view-nav'), "Files");
     await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder after Recent view");
     await clickAria(`Open folder: ${sampleCourse.code}`);
     await waitUntil(() => rootNode.querySelector(`[aria-label="Preview file: ${successfulFile.name}"]`), "uploaded file in My files");
@@ -3085,8 +3178,8 @@ test("late upload acknowledgements are fenced across an A to B to A profile sess
   try {
     await render(Workspace, { initialProfile: profileA, filesBrowserEnabled: true });
     await click("Files"); await waitUntil(() => rootNode.querySelector(".files-browser"), "Files browser for account A");
-    await click("New"); await click("Upload file");
-    const chooser = field("Choose files");
+    await click("New"); await click("Upload files");
+    const chooser = uploadChooser();
     await act(async () => { Object.defineProperty(chooser, "files", { configurable: true, value: [lateFile] }); chooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
     await waitUntil(() => xhr.requests.length === 1, "account A upload starts");
     const heldRequest = xhr.requests[0];
@@ -3095,7 +3188,7 @@ test("late upload acknowledgements are fenced across an A to B to A profile sess
 
     await render(Workspace, { initialProfile: profileB, filesBrowserEnabled: true });
     await waitUntil(() => rootNode.querySelector(`[data-upload-id="${heldId}"] .files-upload-error`)?.textContent.includes("original account"), "account switch aborts and retains the original queue row");
-    assert.equal(field("Choose files").disabled, true, "an old account chooser cannot add files to the new account");
+    assert.equal(uploadChooser().disabled, true, "an old account chooser cannot add files to the new account");
     const retryButton = [...rootNode.querySelectorAll(`[data-upload-id="${heldId}"] button`)].find((button) => button.textContent.trim() === "Retry upload");
     assert.ok(retryButton?.disabled, "the old account's retry is disabled while account B is active");
 

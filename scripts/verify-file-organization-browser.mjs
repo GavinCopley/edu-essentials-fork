@@ -205,7 +205,7 @@ async function smokeViewport(viewport) {
     const menu = page.getByRole("menu", { name: "New actions" });
     await menu.waitFor({ state: "visible" });
     const menuItems = await menu.getByRole("menuitem").allTextContents().then((labels) => labels.map((label) => label.trim()));
-    assert.ok(menuItems.includes("Upload file"), `New menu includes Upload file at ${viewport.width}px (${menuItems.join(", ")})`);
+    assert.ok(menuItems.includes("Upload files"), `New menu includes Upload files at ${viewport.width}px (${menuItems.join(", ")})`);
     assert.ok(menuItems.includes("New folder"), `New menu includes New folder at ${viewport.width}px`);
     await assertMenuInViewport(page, viewport.width);
     if (viewport.width === 1440) await page.screenshot({ path: resolve(screenshotDir, "desktop-new-menu.png"), animations: "disabled" });
@@ -297,9 +297,9 @@ async function fullOrganizationFlow() {
     await page.getByRole("button", { name: "Open folder: BIO 201" }).click();
     const courseFolder = await page.evaluate(() => window.__fileOrganizationFixture.getFolders().find((folder) => folder.course_id === "biology" && folder.kind === "course"));
     await page.getByRole("button", { name: "New", exact: true }).click();
-    await page.getByRole("menu", { name: "New actions" }).getByRole("menuitem", { name: "Upload file", exact: true }).click();
+    await page.getByRole("menu", { name: "New actions" }).getByRole("menuitem", { name: "Upload files", exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.__fileOrganizationFixture.getUploads()), [{ folderId: courseFolder.id, courseId: "biology" }],
-      "the New menu's Upload file action preserves the active course folder and course");
+      "the New menu's Upload files action preserves the active course folder and course");
     const courseNested = await createFolder(page, "BIO 201 notes");
     assert.equal(courseNested.parent_id, courseFolder.id, "a folder created inside a managed course root is nested under that stable course folder");
     await page.locator(".files-breadcrumbs").getByRole("button", { name: "My files" }).click();

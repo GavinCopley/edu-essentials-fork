@@ -4,9 +4,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import {
   Archive,
   ArrowLeft,
+  BookOpen,
   ChevronRight,
+  ChevronDown,
   Clock3,
   Check,
+  CloudUpload,
   Download,
   File as FileIcon,
   FileImage,
@@ -20,6 +23,7 @@ import {
   MoreHorizontal,
   Plus,
   Pencil,
+  Pin,
   RotateCcw,
   RefreshCw,
   Move,
@@ -53,6 +57,7 @@ import { useSaveProtection } from "./use-save-protection";
 import FilesTrashDialog, { type TrashDialogAction, type TrashDialogRequest } from "./files-trash-dialog";
 import FilesBrowserTools, { type BrowserFileType, type BrowserSearchScope, type BrowserSortBy, type BrowserSortDirection } from "./files-browser-tools";
 import FileArchiveDialog, { type ArchiveDialogRequest } from "./file-archive-dialog";
+import FilesCardPreview from "./files-card-preview";
 import "./files-browser.css";
 
 type FilesBrowserProps = {
@@ -61,8 +66,10 @@ type FilesBrowserProps = {
   assignments?: Pick<SavedAssignment, "id" | "title" | "courseId">[];
   store: FileStore;
   layout: "list" | "grid";
+  layoutMigrationPending?: boolean;
   onLayoutChange: (layout: "list" | "grid") => void;
   onUpload: (folderId: string | null, courseId: string) => void;
+  onUploadFolder?: (folderId: string | null, courseId: string) => void;
   onUploadFiles?: (files: File[], folderId: string | null, courseId: string) => void;
   onOpen: (file: PrivateFile, options?: { readOnly?: boolean }) => void;
   onEdit: (file: PrivateFile) => void;
@@ -126,11 +133,11 @@ function restoreOrganizationFocus(root: HTMLElement | null, trigger: HTMLElement
 type FileSystemEntryLike = { isDirectory?: boolean };
 
 function isExternalFileTransfer(transfer: DataTransfer) {
-  return transfer.files.length > 0 || transfer.types.includes("Files") || Array.from(transfer.items).some((item) => item.kind === "file");
+  return transfer.files.length > 0 || transfer.types.includes("Files") || Array.from(transfer.items ?? []).some((item) => item.kind === "file");
 }
 
 function includesDroppedDirectory(transfer: DataTransfer) {
-  for (const item of Array.from(transfer.items)) {
+  for (const item of Array.from(transfer.items ?? [])) {
     const entryItem = item as DataTransferItem & { webkitGetAsEntry?: () => FileSystemEntryLike | null };
     if (entryItem.webkitGetAsEntry?.()?.isDirectory) return true;
   }
@@ -258,6 +265,23 @@ function fileIcon(file: PrivateFile) {
   return FileIcon;
 }
 
+function filePreviewColor(file: PrivateFile) {
+  const mime = file.mime_type.toLowerCase();
+  const name = file.name.toLowerCase();
+  if (mime === "application/pdf" || name.endsWith(".pdf")) return "#ff555f";
+  if (mime.includes("presentation") || /\.(ppt|pptx|key)$/.test(name)) return "#ff7043";
+  if (mime.includes("spreadsheet") || mime.includes("excel") || /\.(xls|xlsx|csv)$/.test(name)) return "#19c981";
+  if (mime.startsWith("image/")) return "#a46dff";
+  return "#a6c4f4";
+}
+
+function displayCardDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+}
+
 function fileCourseName(file: PrivateFile, courses: Course[]) {
   if (!file.course_id) return "Personal";
   const course = courses.find((candidate) => candidate.id === file.course_id);
@@ -329,8 +353,10 @@ export default function FilesBrowser({
   assignments = [],
   store,
   layout,
+  layoutMigrationPending = false,
   onLayoutChange,
   onUpload,
+  onUploadFolder,
   onUploadFiles,
   onOpen,
   onEdit,
@@ -358,7 +384,7 @@ export default function FilesBrowser({
     dataRevisionRef.current = { profileId, value: dataRevision };
     if (previous.profileId === profileId && previous.value !== dataRevision && dataRevision !== undefined) void refreshBrowserData();
   }, [dataRevision, profileId, refreshBrowserData]);
-  const { location, navigate, setLayout } = useFilesBrowserLocation(layout);
+  const { location, navigate, setLayout } = useFilesBrowserLocation(layout, layoutMigrationPending);
   const [profileSessionStore] = useState(() => createProfileSessionStore(profileId));
   const profileSession = useSyncExternalStore(profileSessionStore.subscribe, profileSessionStore.getSnapshot, profileSessionStore.getSnapshot);
   const profileSessionRef = useRef({ profileId, version: 0 });
@@ -368,6 +394,7 @@ export default function FilesBrowser({
   useLayoutEffect(() => { latestPreferencesRef.current = activePreferences; }, [activePreferences]);
   const updatePreferences = (patch: Partial<FilesBrowserPreferences>) => {
     const next = { ...latestPreferencesRef.current, ...patch };
+    if (layoutMigrationPending) setLayout(location.layout, true);
     latestPreferencesRef.current = next;
     setLocalPreferences(next);
     onPreferencesChange?.(next);
@@ -391,6 +418,8 @@ export default function FilesBrowser({
   });
   const selectionScope = `${profileId}:${profileSession.version}:${location.view}:${location.folderId ?? "root"}`;
   const [menuTarget, setMenuTarget] = useState<FilesMenuTarget | null>(null);
+  const [coursesExpanded, setCoursesExpanded] = useState(false);
+  const [pinnedPickerOpen, setPinnedPickerOpen] = useState(false);
   const [menuPoint, setMenuPoint] = useState({ x: 0, y: 0 });
   const [detailsItem, setDetailsItem] = useState<BrowserItem | null>(null);
   const [localSyllabusText, setLocalSyllabusText] = useState<{ course: Course; text: string; name: string } | null>(null);
@@ -452,6 +481,15 @@ export default function FilesBrowser({
 
   const courseById = useMemo(() => new Map(courses.map((course) => [course.id, course])), [courses]);
   const folderById = useMemo(() => new Map(data.folders.map((folder) => [folder.id, folder])), [data.folders]);
+  const courseFolders = useMemo(() => data.folders
+    .filter((folder) => folder.kind === "course" && folder.course_id && folder.parent_id === null && !folder.archived_at && !folder.trashed_at)
+    .sort((left, right) => (courseById.get(left.course_id ?? "")?.name || left.name).localeCompare(courseById.get(right.course_id ?? "")?.name || right.name)), [courseById, data.folders]);
+  const pinnedFolders = useMemo(() => data.folders
+    .filter((folder) => Boolean(data.folderActivity[folder.id]?.starred_at) && !folder.archived_at && !folder.trashed_at && browserItemLocation({ type: "folder", id: folder.id, folder }, data.folders).view === "my-files")
+    .sort((left, right) => left.name.localeCompare(right.name)), [data.folderActivity, data.folders]);
+  const pinCandidates = useMemo(() => data.folders
+    .filter((folder) => !data.folderActivity[folder.id]?.starred_at && !folder.archived_at && !folder.trashed_at && browserItemLocation({ type: "folder", id: folder.id, folder }, data.folders).view === "my-files")
+    .sort((left, right) => left.name.localeCompare(right.name)), [data.folderActivity, data.folders]);
   const managedCourse = result.folder?.kind === "course" && result.folder.course_id
     ? courseById.get(result.folder.course_id)
     : undefined;
@@ -490,6 +528,10 @@ export default function FilesBrowser({
                 ? "Uploads are unavailable while this workspace is read-only."
                 : "";
   const currentTitle = allActiveSearch ? includeArchived ? "All files" : "All active files" : location.folderId ? result.folder?.name || (browserData.loading ? "Loading folder…" : "Unavailable folder") : viewOptions.find((option) => option.id === location.view)?.label || "My files";
+  const rootHasActiveItems = data.folders.some((folder) => folder.parent_id === null && !folder.archived_at && !folder.trashed_at && !folder.deleted_at) ||
+    data.files.some((file) => file.folder_id === null && !file.trashed_at && !file.deleted_at && file.state !== "deleting");
+  const showEmptyWelcome = location.view === "my-files" && location.folderId === null && ordinaryItems.length === 0 && !showSyllabusPin &&
+    !browserData.loading && !browserData.error && !result.unavailable && !hasResultHidingFilter && !rootHasActiveItems;
   const canOrganizeAtCurrentLocation = Boolean(canWrite && activeMyFilesLocation && !browserData.loading && !browserData.error && !store.busy && !organizationBusy && !anyFilesDialogOpen);
   const canCreateTextFile = Boolean(onNewTextFile && canOrganizeAtCurrentLocation);
   const canCreateFolder = canOrganizeAtCurrentLocation;
@@ -841,7 +883,7 @@ export default function FilesBrowser({
           ? "Restore these items before downloading them."
           : "")
     : "";
-  const showSelectionToolbar = Boolean(downloadState) || (selectionAreaAvailable && (selectedItems.length > 0 || ordinaryItems.some(canSelectItem) || (activeMyFilesLocation && canWrite)));
+  const showSelectionToolbar = Boolean(downloadState) || (selectionAreaAvailable && selectedItems.length > 0);
   const selectionActionBusy = organizationBusy || store.busy || activityBusy || anyFilesDialogOpen || browserData.loading || Boolean(browserData.error) || Boolean(downloadState?.busy);
 
   const beginSelectedTrashDialog = (action: "trash" | "restore", trigger?: HTMLElement) => {
@@ -991,7 +1033,7 @@ export default function FilesBrowser({
     if (!isExternalFileTransfer(event.dataTransfer)) return;
     if (!onUploadFiles) return;
     event.preventDefault();
-    const reason = includesDroppedDirectory(event.dataTransfer) ? "Folder uploads are not supported. Drop individual files instead." : externalDropReason();
+    const reason = includesDroppedDirectory(event.dataTransfer) ? "Choose Upload folder from New to add a folder." : externalDropReason();
     setUploadDropMessage(reason);
     setExternalDropActive(!reason);
     event.dataTransfer.dropEffect = reason ? "none" : "copy";
@@ -1006,7 +1048,7 @@ export default function FilesBrowser({
     event.stopPropagation();
     setExternalDropActive(false);
     if (includesDroppedDirectory(event.dataTransfer)) {
-      setUploadDropMessage("Folder uploads are not supported. Drop individual files instead.");
+      setUploadDropMessage("Choose Upload folder from New to add a folder.");
       return;
     }
     const reason = externalDropReason();
@@ -1055,7 +1097,7 @@ export default function FilesBrowser({
     organizationTriggerRef.current = trigger;
     const rect = trigger.getBoundingClientRect();
     menuAnchorRef.current = { left: rect.left, top: rect.top };
-    menuPointFor(point?.x ?? rect.right - 216, point?.y ?? rect.bottom + 4);
+    menuPointFor(point?.x ?? (kind === "new" && window.innerWidth > 900 ? rect.right - 54 : rect.right - 216), point?.y ?? rect.bottom + 4);
     setMenuTarget({ kind });
   }, [menuPointFor, organizationDialog, trashDialogOpen]);
 
@@ -1138,6 +1180,13 @@ export default function FilesBrowser({
   const uploadFromMenu = () => {
     closeMenu();
     handleUpload();
+  };
+
+  const uploadFolderFromMenu = () => {
+    closeMenu();
+    if (!onUploadFolder || uploadDisabledReason || organizationBusy || anyFilesDialogOpen) return;
+    const folderId = location.folderId ? result.folder?.id ?? null : null;
+    onUploadFolder(folderId, folderCourseId(folderId, data.folders));
   };
 
   const courseForFolder = (folderId: string | null) => {
@@ -1248,9 +1297,17 @@ export default function FilesBrowser({
   const renderStarMenuItem = (item: BrowserItem) => <button role="menuitem" type="button" disabled={!canChangeStar(item)} onClick={() => { closeMenu(); void runStarChange(item, !itemIsStarred(item)); }}><Star size={15} /> {itemIsStarred(item) ? "Remove from Starred" : "Add to Starred"}</button>;
   const createAtCurrentLocation = () => beginNewTextFile(location.folderId ? result.folder?.id ?? null : null);
   const renderCreationMenu = () => <>
-    {menuTarget?.kind === "new" && <button role="menuitem" type="button" disabled={!canUpload} title={uploadDisabledReason || undefined} onClick={uploadFromMenu}><Upload size={15} /> Upload file</button>}
-    {canCreateTextFile && <button role="menuitem" type="button" onClick={createAtCurrentLocation}><FileText size={15} /> New text file</button>}
+    {menuTarget?.kind === "new" && <>
+      <button role="menuitem" type="button" disabled={!canUpload} title={uploadDisabledReason || undefined} onClick={uploadFromMenu}><Upload size={15} /> Upload files</button>
+      <button role="menuitem" type="button" disabled={!canUpload || !onUploadFolder} aria-disabled={!canUpload || !onUploadFolder} title={!onUploadFolder ? "Folder uploads are unavailable." : uploadDisabledReason || undefined} onClick={uploadFolderFromMenu}><FolderOpen size={15} /> Upload folder</button>
+      <div className="files-context-menu-separator" role="separator" />
+    </>}
+    {menuTarget?.kind === "background" && ordinaryItems.some(canSelectItem) && <>
+      <button role="menuitem" type="button" disabled={selectionActionBusy} onClick={() => { closeMenu(); selectVisibleItems(); }}><Check size={15} /> Select visible</button>
+      {(canCreateFolder || canCreateTextFile) && <div className="files-context-menu-separator" role="separator" />}
+    </>}
     {canCreateFolder && <button role="menuitem" type="button" onClick={() => beginCreateFolder(location.folderId ? result.folder?.id ?? null : null)}><FolderPlus size={15} /> New folder</button>}
+    {canCreateTextFile && <button role="menuitem" type="button" onClick={createAtCurrentLocation}><FileText size={15} /> Text document</button>}
   </>;
 
   const renderMenu = (item: BrowserItem) => {
@@ -1301,7 +1358,7 @@ export default function FilesBrowser({
     const itemArchived = itemLocation.view === "archives";
     const accent = folder ? courseColor(folder, courses, data.folders) : file ? fileColor(file, courses, data.folders) : "#8da6cc";
     const associatedCourse = archivedCourseSnapshot(item, data.folders) ? undefined : folder ? folderCourse(folder, courses) : file?.course_id ? courseById.get(file.course_id) : undefined;
-    const ItemIcon = folder ? (folder.kind === "course" ? Folder : FolderOpen) : file ? fileIcon(file) : FileIcon;
+    const ItemIcon = folder ? (location.layout === "grid" || folder.kind === "course" ? Folder : FolderOpen) : file ? fileIcon(file) : FileIcon;
     const inTrash = location.view === "trash";
     const locationLabel = inTrash ? originalDisplayPath(item, data.folders) : itemLocation.label || folderLocationLabel(file ? file.folder_id : folder?.parent_id ?? null, data.folders);
     const mismatch = Boolean(file && associationDiffersFromLocation(file, data.folders));
@@ -1309,8 +1366,10 @@ export default function FilesBrowser({
     const canSelect = canSelectItem(item);
     const selected = selectedKeySet.has(itemKey(item));
     const isDropTarget = Boolean(folder && dropTargetId === folder.id);
+    const folderFileCount = folder ? data.files.filter((candidate) => candidate.folder_id === folder.id && !candidate.trashed_at && !candidate.deleted_at && candidate.state !== "deleting").length : 0;
     const itemStyle = {
       "--file-item-accent": accent,
+      "--file-type-accent": file ? filePreviewColor(file) : accent,
       "--file-item-soft": associatedCourse?.soft || `color-mix(in srgb, ${accent} 16%, #10213a)`,
     } as CSSProperties;
     const contextHandlers = {
@@ -1319,7 +1378,7 @@ export default function FilesBrowser({
     };
     const activationLabel = folder ? "Open folder" : location.view === "trash" || file?.trashed_at || file?.state === "deleting" || (file?.state === "pending" && (!canWrite || itemArchived)) ? "View file details" : file?.state === "ready" ? itemArchived ? "View file" : file.content_backend === "native-text" ? "Edit text" : "Preview file" : "Edit / retry upload";
     return <article
-      className={`files-item ${folder ? "is-folder" : "is-file"} ${selectionControlsVisible ? "has-select" : ""} ${isDropTarget ? "is-drop-target" : ""}`}
+      className={`files-item ${folder ? "is-folder" : "is-file"} ${selectionControlsVisible ? "has-select" : ""} ${selected ? "is-selected" : ""} ${isDropTarget ? "is-drop-target" : ""}`}
       style={itemStyle}
       key={`${item.type}:${item.id}`}
       role="listitem"
@@ -1331,6 +1390,11 @@ export default function FilesBrowser({
       onDrop={folder ? (event) => dropOnTarget(event, folder.id) : undefined}
       {...contextHandlers}
     >
+      {location.layout === "grid" && file && <div className="files-card-preview" role="button" tabIndex={0} onClick={(event) => handleItemActivate(item, event.currentTarget)} onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); handleItemActivate(item, event.currentTarget); }
+      }} aria-label={`${activationLabel}: ${itemName(item)}`}>
+        <FilesCardPreview file={file} profileId={profileId} sessionVersion={profileSession.version} store={store} />
+      </div>}
       {selectionControlsVisible && (selectionViewAllowsItem(item) ? <label className="files-item-select">
         <input type="checkbox" checked={selected} disabled={!canSelect || organizationBusy || Boolean(downloadState?.busy)} onChange={(event) => toggleSelectedItem(item, event.currentTarget.checked)} aria-label={`Select ${itemName(item)} in ${locationLabel}`} title={folder?.kind === "course" ? "Course folders can be downloaded, but cannot be moved or trashed." : canSelect ? undefined : "This item cannot be selected for bulk actions."} />
       </label> : <span className="files-item-select-spacer" aria-hidden="true" />)}
@@ -1338,7 +1402,8 @@ export default function FilesBrowser({
         <span className="files-item-icon" aria-hidden="true"><ItemIcon size={19} /></span>
         <span className="files-item-title">
           <strong title={`${itemName(item)} — ${locationLabel}`}>{itemName(item)}</strong>
-          <small title={locationLabel}>{itemCourseLabel(item)}{itemCourseSecondaryLabel(item) ? ` · ${itemCourseSecondaryLabel(item)}` : ""} · {locationLabel}{file ? ` · ${file.kind}` : folder?.kind === "course" ? " · Course folder" : " · Folder"}</small>
+          {location.layout === "grid" && file && <span className="files-card-metadata">{displayCardDate(inTrash ? file.trashed_at : itemModified(item))}<span aria-hidden="true"> · </span>{fileSize(Number(file.size_bytes))}</span>}
+          <small title={locationLabel}>{location.layout === "grid" && folder ? `${folderFileCount} ${folderFileCount === 1 ? "file" : "files"}` : `${itemCourseLabel(item)}${itemCourseSecondaryLabel(item) ? ` · ${itemCourseSecondaryLabel(item)}` : ""} · ${locationLabel}${file ? ` · ${file.kind}` : folder?.kind === "course" ? " · Course folder" : " · Folder"}`}</small>
           {mismatch && file && <span className="files-association-badges" aria-label="File associations differ from this location">
             <span className="files-association-badge">{fileCourseName(file, courses)}</span>
             {file.assignment_id && <span className="files-association-badge">{assignment?.title || "Assignment"}</span>}
@@ -1346,9 +1411,10 @@ export default function FilesBrowser({
         </span>
       </button>
       <span className="files-item-course">{itemCourseLabel(item)}{itemCourseSecondaryLabel(item) && <small>{itemCourseSecondaryLabel(item)}</small>}</span>
-      <span className="files-item-modified" title={inTrash ? displayDateTime(file?.trashed_at ?? folder?.trashed_at) : displayDate(itemModified(item))}>{inTrash ? displayDateTime(file?.trashed_at ?? folder?.trashed_at) : displayDate(itemModified(item))}</span>
+      <span className="files-item-modified" title={inTrash ? displayDateTime(file?.trashed_at ?? folder?.trashed_at) : displayDate(itemModified(item))}>{location.layout === "grid" && file ? displayCardDate(itemModified(item)) : inTrash ? displayDateTime(file?.trashed_at ?? folder?.trashed_at) : displayDate(itemModified(item))}</span>
       <span className="files-item-size">{file ? fileSize(Number(file.size_bytes)) : "—"}</span>
       {file ? <span className={`files-status ${file.trashed_at ? "is-trashed" : `is-${file.state}`}`}>{describeFileStatus(file)}</span> : <span className={`files-status${folder && itemPurgePending(item) ? " is-deleting" : ""}`}>{folder && itemPurgePending(item) ? "Cleanup pending" : folder?.trashed_at ? "In Trash" : folder?.archived_at ? "Archived" : ""}</span>}
+      {location.layout === "grid" && file && <button type="button" className="files-item-star-trigger" disabled={!canChangeStar(item)} aria-label={itemIsStarred(item) ? `Remove ${itemName(item)} from Starred` : `Add ${itemName(item)} to Starred`} aria-pressed={itemIsStarred(item)} title={itemIsStarred(item) ? "Remove from Starred" : "Add to Starred"} onClick={() => void runStarChange(item, !itemIsStarred(item))}><Star size={17} fill={itemIsStarred(item) ? "currentColor" : "none"} /></button>}
       <button
         type="button"
         className="files-item-menu-trigger"
@@ -1358,7 +1424,7 @@ export default function FilesBrowser({
         onClick={(event) => showMenu(item, event.currentTarget)}
         onContextMenu={(event) => openItemMenu(event, item)}
         onKeyDown={(event) => openKeyboardMenu(event, item)}
-      ><MoreHorizontal size={18} /></button>
+      ><MoreHorizontal size={18} className={location.layout === "grid" ? "files-grid-more-icon" : undefined} /></button>
     </article>;
   };
 
@@ -1375,48 +1441,52 @@ export default function FilesBrowser({
   };
 
   return <section ref={browserRootRef} className="files-browser" aria-label="Files">
-    <header className="files-browser-header">
-      <div className="files-browser-title">
-        <h1>Files</h1>
-        <p>Your private files, organized by class and folder.</p>
-      </div>
-      <div className="files-browser-header-actions">
-        <div className="files-layout-toggle" role="group" aria-label="File layout">
-          <button type="button" aria-pressed={location.layout === "list"} className={location.layout === "list" ? "is-active" : ""} onClick={() => handleLayout("list")} aria-label="List view"><LayoutList size={17} /></button>
-          <button type="button" aria-pressed={location.layout === "grid"} className={location.layout === "grid" ? "is-active" : ""} onClick={() => handleLayout("grid")} aria-label="Grid view"><Grid2X2 size={17} /></button>
-        </div>
-        <button type="button" className="files-new-button" disabled={!canOpenNewMenu} title={canOpenNewMenu ? "Create or upload a file or folder" : uploadDisabledReason || "Creating files is unavailable."} aria-haspopup="menu" aria-expanded={menuTarget?.kind === "new"} onClick={(event) => showCreationMenu("new", event.currentTarget)}><Plus size={16} /> New</button>
-      </div>
-    </header>
-
-    {uploadDisabledReason && <p className="files-readonly-note" role="note">{uploadDisabledReason}</p>}
-
     <div className="files-browser-layout">
-      <nav className="files-view-nav" aria-label="File views">
-        {viewOptions.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={location.view === id ? "is-active" : ""} aria-current={location.view === id ? "page" : undefined} onClick={() => navigate(id, null)}><Icon size={17} /><span>{label}</span></button>)}
-      </nav>
+      <aside className="files-sidebar" aria-label="File navigation">
+        <header className="files-browser-header">
+          <div className="files-browser-title"><h1>Files</h1></div>
+          <button type="button" className="files-new-button" disabled={!canOpenNewMenu} title={canOpenNewMenu ? "Create or upload a file or folder" : uploadDisabledReason || "Creating files is unavailable."} aria-haspopup="menu" aria-expanded={menuTarget?.kind === "new"} onClick={(event) => showCreationMenu("new", event.currentTarget)}><Plus size={16} /> New</button>
+        </header>
+        <nav className="files-view-nav" aria-label="File views">
+          <div className="files-view-primary">
+            <button type="button" className={location.view === "my-files" ? "is-active" : ""} aria-current={location.view === "my-files" ? "page" : undefined} onClick={() => navigate("my-files", null)}><FolderOpen size={19} /><span>Files</span></button>
+            <button type="button" className={location.view === "recent" ? "is-active" : ""} aria-current={location.view === "recent" ? "page" : undefined} onClick={() => navigate("recent", null)}><Clock3 size={19} /><span>Recent</span></button>
+            <button type="button" className={location.view === "starred" ? "is-active" : ""} aria-current={location.view === "starred" ? "page" : undefined} onClick={() => navigate("starred", null)}><Star size={19} /><span>Starred</span></button>
+            <button type="button" className="files-nav-disclosure" aria-expanded={coursesExpanded} aria-controls="files-course-links" onClick={() => setCoursesExpanded((expanded) => !expanded)}><BookOpen size={19} /><span>Courses</span><ChevronDown size={15} className={coursesExpanded ? "is-expanded" : ""} /></button>
+            {coursesExpanded && <div className="files-course-links" id="files-course-links" aria-label="Course folders">
+              {courseFolders.map((folder) => {
+                const course = folder.course_id ? courseById.get(folder.course_id) : undefined;
+                return <button type="button" key={folder.id} title={folderLocationLabel(folder.id, data.folders)} onClick={() => navigate("my-files", folder.id)}>{course?.code || folder.course_code || course?.name || folder.name}</button>;
+              })}
+              {!courseFolders.length && <p>No course folders yet.</p>}
+            </div>}
+          </div>
 
-      <div className={`files-browser-content ${externalDropActive ? "is-external-drop-target" : ""}`} role="region" onContextMenu={openBackgroundMenu} aria-label={`${currentTitle} contents`}
+          <section className="files-sidebar-pinned" aria-labelledby="files-pinned-heading">
+            <h2 id="files-pinned-heading"><Pin size={17} /><span>Pinned</span></h2>
+            {pinnedFolders.map((folder) => <button key={folder.id} type="button" className={`files-pinned-folder${location.view === "my-files" && location.folderId === folder.id ? " is-current" : ""}`} title={folderLocationLabel(folder.id, data.folders)} onClick={() => navigate("my-files", folder.id)}><FolderOpen size={16} /><span>{folder.name}</span></button>)}
+            <button type="button" className="files-pin-folder-action" aria-expanded={pinnedPickerOpen} aria-controls="files-pinned-picker" onClick={() => setPinnedPickerOpen((open) => !open)}><Plus size={18} /><span>Pin a folder</span></button>
+            {pinnedPickerOpen && <div className="files-pinned-picker" id="files-pinned-picker" role="group" aria-label="Choose a folder to pin">
+              {pinCandidates.map((folder) => {
+                const item: BrowserItem = { type: "folder", id: folder.id, folder };
+                return <button type="button" key={folder.id} disabled={!canChangeStar(item)} onClick={() => { setPinnedPickerOpen(false); void runStarChange(item, true); }}><FolderOpen size={15} /><span>{folder.name}</span></button>;
+              })}
+              {!pinCandidates.length && <p>{pinnedFolders.length ? "All available folders are pinned." : "Create a folder to pin it here."}</p>}
+            </div>}
+          </section>
+
+          <div className="files-view-secondary">
+            <button type="button" className={location.view === "archives" ? "is-active" : ""} aria-current={location.view === "archives" ? "page" : undefined} onClick={() => navigate("archives", null)}><Archive size={19} /><span>Archives</span></button>
+            <button type="button" className={location.view === "trash" ? "is-active" : ""} aria-current={location.view === "trash" ? "page" : undefined} onClick={() => navigate("trash", null)}><Trash2 size={19} /><span>Trash</span></button>
+          </div>
+        </nav>
+      </aside>
+
+      <div className={`files-browser-content ${externalDropActive ? "is-external-drop-target" : ""} ${showEmptyWelcome ? "is-empty-welcome" : ""}`} role="region" onContextMenu={openBackgroundMenu} aria-label={`${currentTitle} contents`}
         onDragOver={handleExternalDragOver}
         onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setExternalDropActive(false); }}
         onDrop={handleExternalDrop}>
-        <div className="files-content-heading">
-          <div>
-            <h2>{currentTitle}</h2>
-            <nav className="files-breadcrumbs" aria-label="Folder breadcrumbs">
-              <button type="button" className={dropTargetId === "root" ? "is-drop-target" : ""} onClick={() => navigate(location.view, null)} onDragOver={activeMyFilesLocation ? (event) => dragOverTarget(event, null) : undefined} onDragLeave={() => { if (dropTargetId === "root") setDropTargetId(null); }} onDrop={activeMyFilesLocation ? (event) => dropOnTarget(event, null) : undefined}>{location.view === "my-files" ? "My files" : viewOptions.find((option) => option.id === location.view)?.label}</button>
-              {!allActiveSearch && result.breadcrumbs.map((crumb, index) => <span className="files-breadcrumb-part" key={crumb.id}>
-                <ChevronRight size={14} aria-hidden="true" />
-                <button type="button" className={dropTargetId === crumb.id ? "is-drop-target" : ""} aria-current={index === result.breadcrumbs.length - 1 ? "page" : undefined} onClick={() => navigate(location.view, crumb.id)} onDragOver={activeMyFilesLocation ? (event) => dragOverTarget(event, crumb.id) : undefined} onDragLeave={() => { if (dropTargetId === crumb.id) setDropTargetId(null); }} onDrop={activeMyFilesLocation ? (event) => dropOnTarget(event, crumb.id) : undefined}>{crumb.name}</button>
-              </span>)}
-            </nav>
-          </div>
-          <div className="files-content-heading-actions">
-            {syllabusPinCount > 0 && <span className="files-count">{syllabusPinCount} {syllabusPinCount === 1 ? "item" : "items"}</span>}
-            {location.view === "trash" && <button type="button" className="files-secondary-button files-trash-empty-button" disabled={!canWrite || browserData.loading || Boolean(browserData.error) || organizationBusy || store.busy || trashCount === 0 || anyFilesDialogOpen} onClick={(event) => beginTrashDialog("empty-trash", undefined, event.currentTarget)}><Trash2 size={15} /> Empty Trash{trashCount ? ` (${trashCount})` : ""}</button>}
-            {(canCreateTextFile || canCreateFolder) && <button type="button" className="files-icon-button files-location-menu-trigger" aria-label={`Actions for ${currentTitle}`} aria-haspopup="menu" aria-expanded={menuTarget?.kind === "background"} onClick={(event) => showCreationMenu("background", event.currentTarget)} onContextMenu={openAccessibleBackgroundMenu} onKeyDown={openKeyboardBackgroundMenu}><MoreHorizontal size={18} /></button>}
-          </div>
-        </div>
+        {uploadDisabledReason && <p className="files-readonly-note" role="note">{uploadDisabledReason}</p>}
 
         <FilesBrowserTools
           query={searchQuery}
@@ -1439,6 +1509,46 @@ export default function FilesBrowser({
           sortDisabled={location.view === "recent"}
           disabled={organizationBusy || activityBusy || anyFilesDialogOpen}
         />
+
+        {!showEmptyWelcome && <div className="files-content-heading">
+          <div>
+            <div className="files-content-title-line">
+              <h2>{location.view === "my-files" && !location.folderId && !allActiveSearch ? "Your files" : currentTitle}</h2>
+              {location.view === "my-files" && !location.folderId && !allActiveSearch && <span className="files-content-tagline">A place for everything.</span>}
+            </div>
+            {(location.folderId !== null || location.view !== "my-files" || allActiveSearch) && <nav className="files-breadcrumbs" aria-label="Folder breadcrumbs">
+              <button type="button" className={dropTargetId === "root" ? "is-drop-target" : ""} onClick={() => navigate(location.view, null)} onDragOver={activeMyFilesLocation ? (event) => dragOverTarget(event, null) : undefined} onDragLeave={() => { if (dropTargetId === "root") setDropTargetId(null); }} onDrop={activeMyFilesLocation ? (event) => dropOnTarget(event, null) : undefined}>{location.view === "my-files" ? "My files" : viewOptions.find((option) => option.id === location.view)?.label}</button>
+              {!allActiveSearch && result.breadcrumbs.map((crumb, index) => <span className="files-breadcrumb-part" key={crumb.id}>
+                <ChevronRight size={14} aria-hidden="true" />
+                <button type="button" className={dropTargetId === crumb.id ? "is-drop-target" : ""} aria-current={index === result.breadcrumbs.length - 1 ? "page" : undefined} onClick={() => navigate(location.view, crumb.id)} onDragOver={activeMyFilesLocation ? (event) => dragOverTarget(event, crumb.id) : undefined} onDragLeave={() => { if (dropTargetId === crumb.id) setDropTargetId(null); }} onDrop={activeMyFilesLocation ? (event) => dropOnTarget(event, crumb.id) : undefined}>{crumb.name}</button>
+              </span>)}
+            </nav>}
+          </div>
+          <div className="files-content-heading-actions">
+            <div className="files-layout-toggle" role="group" aria-label="File layout">
+              <button type="button" aria-pressed={location.layout === "list"} className={location.layout === "list" ? "is-active" : ""} onClick={() => handleLayout("list")} aria-label="List view"><LayoutList size={17} /></button>
+              <button type="button" aria-pressed={location.layout === "grid"} className={location.layout === "grid" ? "is-active" : ""} onClick={() => handleLayout("grid")} aria-label="Grid view"><Grid2X2 size={17} /></button>
+            </div>
+            <label className="files-quick-sort"><span className="files-tools-sr-only">Sort files by</span><select aria-label="Sort by" value={preferencesSortBy} onChange={(event) => updatePreferences({ sortBy: event.currentTarget.value as BrowserSortBy })} disabled={organizationBusy || activityBusy || anyFilesDialogOpen || location.view === "recent"}><option value="name">Name</option><option value="modified">Last modified</option></select></label>
+            {syllabusPinCount > 0 && <span className="files-count">{syllabusPinCount} {syllabusPinCount === 1 ? "item" : "items"}</span>}
+            {location.view === "trash" && <button type="button" className="files-secondary-button files-trash-empty-button" disabled={!canWrite || browserData.loading || Boolean(browserData.error) || organizationBusy || store.busy || trashCount === 0 || anyFilesDialogOpen} onClick={(event) => beginTrashDialog("empty-trash", undefined, event.currentTarget)}><Trash2 size={15} /> Empty Trash{trashCount ? ` (${trashCount})` : ""}</button>}
+            {(canCreateTextFile || canCreateFolder || (selectionAreaAvailable && ordinaryItems.some(canSelectItem))) && <button type="button" className="files-icon-button files-location-menu-trigger" aria-label={`Actions for ${currentTitle}`} aria-haspopup="menu" aria-expanded={menuTarget?.kind === "background"} onClick={(event) => showCreationMenu("background", event.currentTarget)} onContextMenu={openAccessibleBackgroundMenu} onKeyDown={openKeyboardBackgroundMenu}><MoreHorizontal size={18} /></button>}
+          </div>
+        </div>
+        }
+
+        {showEmptyWelcome && <section className="files-empty-welcome" aria-labelledby="files-empty-title">
+          <div className="files-empty-copy">
+            <h2 id="files-empty-title">A place for<br /><span>everything.</span></h2>
+            <p>Add your first file. Keep it organized from the start.</p>
+            <div className="files-empty-actions">
+              <button type="button" className="files-new-button" disabled={Boolean(uploadDisabledReason)} onClick={handleUpload}><Upload size={19} /> Upload files</button>
+              <button type="button" className="files-empty-folder-action" disabled={!canCreateFolder} onClick={() => beginCreateFolder(null)}><Folder size={21} /> Create folder</button>
+            </div>
+          </div>
+          <div className="files-empty-art" aria-hidden="true" />
+          <div className="files-empty-drop-hint" aria-hidden="true"><span /><CloudUpload size={35} /><span /><p>Or drop files anywhere in this space</p></div>
+        </section>}
 
         {trashNotice && <p className="files-trash-notice" role="status" aria-live="polite">{trashNotice}</p>}
         {uploadDropMessage && <p className="files-upload-drop-notice" role="status" aria-live="polite">{uploadDropMessage}</p>}
@@ -1484,7 +1594,7 @@ export default function FilesBrowser({
             <p>It may have been removed or is no longer available to this account.</p>
             <button type="button" className="files-secondary-button" onClick={() => navigate(location.view, null)}><ArrowLeft size={15} /> Return to {viewOptions.find((option) => option.id === location.view)?.label || "My files"}</button>
           </div>
-        ) : ordinaryItems.length === 0 && !showSyllabusPin ? (
+        ) : showEmptyWelcome ? null : ordinaryItems.length === 0 && !showSyllabusPin ? (
           <div className="files-state-panel"><span className="files-state-icon"><FolderOpen size={21} /></span><h3>{searchQuery.trim() ? "No files match your search" : location.view === "trash" ? "Trash is empty" : location.view === "starred" ? "No starred files" : location.view === "recent" ? "No recent files" : location.view === "archives" ? "No archived files" : "This folder is empty"}</h3><p>{searchQuery.trim() ? "Try another name or adjust the filters." : location.view === "my-files" && !location.folderId ? "Upload a file to start building your personal library." : "Files and folders in this view will appear here."}</p>{location.view === "my-files" && !location.folderId && !searchQuery.trim() && <button type="button" className="files-new-button" disabled={Boolean(uploadDisabledReason)} onClick={handleUpload}><Upload size={16} /> Upload a file</button>}</div>
         ) : (
           <>
@@ -1512,12 +1622,13 @@ export default function FilesBrowser({
               />}
               {ordinaryItems.map(renderItem)}
             </div>}
+            {location.view === "my-files" && ordinaryItems.length > 0 && <div className="files-populated-drop-hint" aria-hidden="true"><span /><CloudUpload size={31} /><span /><p>Drop files anywhere to upload</p></div>}
           </>
         )}
       </div>
     </div>
 
-    {menuOpen && <div className="files-context-menu" role="menu" aria-label={`${menuLabel} actions`} tabIndex={-1} ref={menuRef} style={{ left: menuPoint.x, top: menuPoint.y }} onKeyDown={(event) => {
+    {menuOpen && <div className={`files-context-menu${menuTarget?.kind === "new" ? " files-new-menu" : ""}`} role="menu" aria-label={`${menuLabel} actions`} tabIndex={-1} ref={menuRef} style={{ left: menuPoint.x, top: menuPoint.y }} onKeyDown={(event) => {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const choices = [...(menuRef.current?.querySelectorAll<HTMLElement>("[role='menuitem']:not([aria-disabled='true'])") ?? [])];

@@ -534,7 +534,7 @@ async function verifyNativeLiveRegionAndContrast(viewport) {
     await page.keyboard.press("Enter");
     const menu = page.getByRole("menu", { name: "New actions" });
     await menu.waitFor({ state: "visible" });
-    const createText = menu.getByRole("menuitem", { name: "New text file", exact: true });
+    const createText = menu.getByRole("menuitem", { name: "Text document", exact: true });
     await createText.focus();
     await page.keyboard.press("Enter");
     const dialog = page.getByRole("dialog", { name: "Edit text file", exact: true });

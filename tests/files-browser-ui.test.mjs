@@ -8,6 +8,7 @@ for (const name of ["window", "document", "Element", "Node", "HTMLElement", "HTM
   globalThis[name] = dom.window[name];
 }
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
+globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 Object.defineProperty(dom.window, "requestAnimationFrame", { configurable: true, value: (callback) => setTimeout(() => callback(Date.now()), 0) });
 Object.defineProperty(dom.window, "cancelAnimationFrame", { configurable: true, value: (id) => clearTimeout(id) });
@@ -251,8 +252,8 @@ test("Files Browser loads scoped data, navigates by stable folder IDs, saves lay
   assert.equal(new URL(window.location.href).searchParams.get("folder"), "course-labs");
   assert.match(node.querySelector(".files-breadcrumbs").textContent, /BIO 201.*Labs/);
   await click("New");
-  assert.deepEqual(menuLabels(), ["Upload file", "New folder"]);
-  await click("Upload file");
+  assert.deepEqual(menuLabels(), ["Upload files", "Upload folder", "New folder"]);
+  await click("Upload files");
   assert.deepEqual(callbacks.uploads, [{ folderId: "course-labs", courseId: "biology" }]);
 
   await click("Grid view");
@@ -323,11 +324,11 @@ test("New, folder, background, and keyboard menus preserve destination scope and
   await waitUntil(() => node.textContent.includes("Root notes.txt"), "the root file list");
 
   await click("New");
-  assert.deepEqual(menuLabels(), ["Upload file", "New text file", "New folder"]);
-  await click("New text file");
+  assert.deepEqual(menuLabels(), ["Upload files", "Upload folder", "New folder", "Text document"]);
+  await click("Text document");
   assert.deepEqual(callbacks.newTextFiles, [[null, "", "Untitled (2).txt"]], "root creation increments a case-insensitive sibling name");
   await click("New");
-  await click("Upload file");
+  await click("Upload files");
   assert.deepEqual(callbacks.uploads, [{ folderId: null, courseId: "" }], "the upload option keeps its existing root destination");
 
   await click("Open folder: BIO 201");
@@ -339,15 +340,15 @@ test("New, folder, background, and keyboard menus preserve destination scope and
 
   const content = node.querySelector(".files-browser-content");
   await act(async () => content.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 64, clientY: 72 })));
-  assert.deepEqual(menuLabels(), ["New text file", "New folder"]);
-  await click("New text file");
+  assert.deepEqual(menuLabels(), ["Select visible", "New folder", "Text document"]);
+  await click("Text document");
   assert.deepEqual(callbacks.newTextFiles[2], ["course-labs", "biology", "Untitled (2).txt"], "the background menu targets the current folder");
 
   const locationActions = button("Actions for Labs");
   await act(async () => locationActions.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true })));
   await waitUntil(() => !!node.querySelector('[role="menu"]'), "the keyboard-opened location menu");
-  assert.deepEqual(menuLabels(), ["New text file", "New folder"]);
-  await click("New text file");
+  assert.deepEqual(menuLabels(), ["Select visible", "New folder", "Text document"]);
+  await click("Text document");
   assert.deepEqual(callbacks.newTextFiles[3], ["course-labs", "biology", "Untitled (2).txt"], "the keyboard menu uses the same destination and name rules");
 
   await clickView("Archives");

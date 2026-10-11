@@ -188,7 +188,7 @@ function href(pathname: string, params: URLSearchParams) {
   return query ? `${pathname}?${query}` : pathname;
 }
 
-export function useFilesBrowserLocation(initialLayout: FilesBrowserLayout = "list") {
+export function useFilesBrowserLocation(initialLayout: FilesBrowserLayout = "list", ignoreUrlLayout = false) {
   const pathname = usePathname() || "/files";
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -197,7 +197,7 @@ export function useFilesBrowserLocation(initialLayout: FilesBrowserLayout = "lis
   const location: FilesBrowserLocation = {
     view: parsedView(searchParams.get("view")),
     folderId: searchParams.get("folder") || null,
-    layout: parsedLayout(searchParams.get("layout"), safeInitialLayout),
+    layout: ignoreUrlLayout ? safeInitialLayout : parsedLayout(searchParams.get("layout"), safeInitialLayout),
   };
 
   const navigate = useCallback((view: FilesBrowserView, folderId?: string | null) => {
@@ -209,11 +209,13 @@ export function useFilesBrowserLocation(initialLayout: FilesBrowserLayout = "lis
     router.push(href(pathname, params));
   }, [location.layout, pathname, router, search]);
 
-  const setLayout = useCallback((layout: FilesBrowserLayout) => {
+  const setLayout = useCallback((layout: FilesBrowserLayout, replace = false) => {
     const safeLayout = layouts.has(layout) ? layout : safeInitialLayout;
     const params = new URLSearchParams(search);
     params.set("layout", safeLayout);
-    router.push(href(pathname, params));
+    const target = href(pathname, params);
+    if (replace) router.replace(target);
+    else router.push(target);
   }, [pathname, router, safeInitialLayout, search]);
 
   return { location, navigate, setLayout };

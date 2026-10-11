@@ -265,6 +265,7 @@ async function verifyResponsiveScreenshots() {
 async function verifySearchSortingAndArchives() {
   const { context, page } = await preparePage({ width: 1440, height: 1000 });
   try {
+    await page.getByRole("button", { name: "Filters", exact: true }).click();
     const initialNames = await itemNames(page);
     assert.deepEqual(initialNames.slice(0, 3), ["BIO 201", "Design drafts", "Personal Projects"], "name ascending keeps folders first and sorts their names");
     assert.deepEqual(await itemTypes(page), ["folder", "folder", "folder", "file", "file", "file", "file", "file"], "folders stay ahead of files in name ascending order");
@@ -306,7 +307,7 @@ async function verifySearchSortingAndArchives() {
     assert.ok(!personalRows.includes("BIO 201") && !personalRows.includes("Alpha guide.pdf"), "Personal filter excludes course-associated items");
 
     await page.getByLabel("Course filter").selectOption("all");
-    await page.locator(".files-view-nav").getByRole("button", { name: "My files", exact: true }).click();
+    await page.locator(".files-view-nav").getByRole("button", { name: "Files", exact: true }).click();
     await page.getByRole("button", { name: "Open folder: BIO 201" }).click();
     await page.getByRole("searchbox", { name: "Search files" }).fill("Root planning");
     assert.deepEqual(await itemNames(page), [], "current-folder scope stays in the selected course folder");
@@ -324,7 +325,7 @@ async function verifySearchSortingAndArchives() {
     await page.getByRole("button", { name: "Clear search" }).click();
     assert.equal(await page.getByRole("searchbox", { name: "Search files" }).inputValue(), "", "Clear search empties only the temporary query");
 
-    await page.locator(".files-view-nav").getByRole("button", { name: "My files", exact: true }).click();
+    await page.locator(".files-view-nav").getByRole("button", { name: "Files", exact: true }).click();
     await page.getByLabel("Search scope").selectOption("all");
     await page.getByRole("searchbox", { name: "Search files" }).fill("Archived specimen");
     assert.deepEqual(await itemNames(page), [], "global search excludes archived files by default");
@@ -384,7 +385,7 @@ async function verifyStarActivity() {
     assert.deepEqual((await fixture(page, "getFolders")).find((folder) => folder.id === ID.projects), beforeFolder,
       "folder unstar does not alter folder metadata or timestamps");
 
-    await page.locator(".files-view-nav").getByRole("button", { name: "My files", exact: true }).click();
+    await page.locator(".files-view-nav").getByRole("button", { name: "Files", exact: true }).click();
     const fileMenu = await openItemMenu(page, "Alpha guide.pdf");
     await fileMenu.getByRole("menuitem", { name: "Add to Starred", exact: true }).click();
     await page.getByRole("button", { name: "Starred", exact: true }).click();
@@ -453,7 +454,7 @@ async function verifyRecentActivity() {
     await page.getByRole("button", { name: "Recent", exact: true }).click();
     await page.getByRole("button", { name: "Preview file: BIO 201 notes.txt" }).waitFor({ state: "visible" });
 
-    await page.locator(".files-view-nav").getByRole("button", { name: "My files", exact: true }).click();
+    await page.locator(".files-view-nav").getByRole("button", { name: "Files", exact: true }).click();
     await page.getByRole("button", { name: "Edit text: Native plan.txt" }).click();
     const editor = page.locator(".native-document-dialog");
     const textField = editor.locator(".native-document-fields textarea");
@@ -555,7 +556,7 @@ async function verifyArchiveLifecycle() {
       "unarchive clears archived state");
     assert.equal((await fixture(page, "getFolders")).find((folder) => folder.id === ID.projects).semester_label, null,
       "unarchive clears the stored semester label");
-    await page.locator(".files-view-nav").getByRole("button", { name: "My files", exact: true }).click();
+    await page.locator(".files-view-nav").getByRole("button", { name: "Files", exact: true }).click();
     await page.getByRole("button", { name: "Open folder: Personal Projects" }).waitFor({ state: "visible" });
 
     const courseMenu = await openItemMenu(page, "BIO 201");
@@ -585,7 +586,7 @@ async function verifyArchiveLifecycle() {
     await courseUnarchiveDialog.waitFor({ state: "visible" });
     await courseUnarchiveDialog.getByRole("button", { name: "Unarchive folder", exact: true }).click();
     await courseUnarchiveDialog.waitFor({ state: "detached" });
-    await page.locator(".files-view-nav").getByRole("button", { name: "My files", exact: true }).click();
+    await page.locator(".files-view-nav").getByRole("button", { name: "Files", exact: true }).click();
     await page.getByRole("button", { name: "Open folder: BIO 201" }).waitFor({ state: "visible" });
     assert.equal((await fixture(page, "getFolders")).find((folder) => folder.id === ID.biology).archived_at, null,
       "managed course root returns to My files after unarchive");

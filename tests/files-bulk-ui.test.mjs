@@ -268,6 +268,22 @@ function dropEvent(dataTransfer) {
   return event;
 }
 
+test("zero selection hides the bulk toolbar while location actions expose Select visible", async () => {
+  reset();
+  await render();
+  await waitUntil(() => rootNode.textContent.includes("Root notes.txt"), "the root file list");
+  assert.equal(rootNode.querySelector('[role="group"][aria-label="Bulk file actions"]'), null, "no bulk toolbar renders before a selection");
+
+  await click("Actions for My files");
+  assert.ok(rootNode.querySelector('[role="menu"]'), "the current location actions menu opens");
+  assert.ok([...rootNode.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent.trim() === "Select visible"));
+  await click("Select visible");
+  assert.ok(rootNode.querySelector('[role="group"][aria-label="Bulk file actions"]'), "selecting visible items opens the bulk toolbar");
+  assert.match(rootNode.textContent, /items selected/);
+  await click("Clear selection");
+  assert.equal(rootNode.querySelector('[role="group"][aria-label="Bulk file actions"]'), null, "clearing selection hides the zero-selection toolbar");
+});
+
 test("bulk download accepts managed course folders, sends scoped revisions, and downloads only a complete ZIP", async () => {
   reset();
   await render(props({ dataRevision: 1 }));
@@ -299,7 +315,7 @@ test("bulk download accepts managed course folders, sends scoped revisions, and 
     assert.deepEqual(downloaded[0], { size: 22, type: "application/zip" });
     assert.ok(callbacks.reports.some((report) => report?.busy === true && report.draft?.kind === "files-download"));
     assert.ok(callbacks.reports.some((report) => report === null), "completed downloads release the root account-action guard");
-    assert.match(rootNode.textContent, /0 items selected/);
+    assert.equal(rootNode.querySelector('[role="group"][aria-label="Bulk file actions"]'), null, "the zero-selection toolbar is hidden when a completed download clears selection");
   } finally {
     URL.createObjectURL = oldCreate;
     URL.revokeObjectURL = oldRevoke;
@@ -428,7 +444,7 @@ test("external drops over a child row upload into the captured current folder; d
   const directoryDrop = dropEvent(transfer({ files: [file], directory: true }));
   await act(async () => rootNode.querySelector(".files-browser-content").dispatchEvent(directoryDrop));
   assert.equal(directoryDrop.defaultPrevented, true);
-  assert.match(rootNode.textContent, /Folder uploads are not supported/);
+  assert.match(rootNode.textContent, /Choose Upload folder from New to add a folder/);
   assert.equal(callbacks.uploads.length, 1, "directory drops never enqueue a partial file set");
 
   await act(async () => button("Archives").click());

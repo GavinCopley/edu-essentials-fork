@@ -37,18 +37,38 @@ const DEFAULTS = { folderId: null, courseId: "" };
 let root;
 let queue;
 let privateStore;
+let pendingFolderSelection;
 const nativeFetch = globalThis.fetch;
 const NativeXMLHttpRequest = globalThis.XMLHttpRequest;
+const nativeConfirm = dom.window.confirm;
 
-function UploadHarness({ session = { profileId: PROFILE_A, generation: 1 }, store, onUploaded = async () => {}, enabled = true, showDialog = false }) {
+function UploadHarness({ session = { profileId: PROFILE_A, generation: 1 }, store, onUploaded = async () => {}, enabled = true, showDialog = false, mode = "files" }) {
   queue = useFileUploads(session, store, onUploaded, enabled);
   return showDialog ? createElement(FileUploadDialog, {
     queue,
     currentProfileId: session.profileId,
     defaults: DEFAULTS,
+    mode,
     canWrite: enabled,
     onClose: () => {},
   }) : null;
+}
+
+function FolderPlanHarness({ store, initialPlan }) {
+  const [folderUpload, setFolderUpload] = React.useState(initialPlan);
+  pendingFolderSelection = folderUpload;
+  queue = useFileUploads({ profileId: PROFILE_A, generation: 1 }, store, async () => {}, true);
+  return createElement(FileUploadDialog, {
+    queue,
+    currentProfileId: PROFILE_A,
+    currentSessionGeneration: 1,
+    defaults: DEFAULTS,
+    mode: "folder",
+    folderUpload,
+    onFolderUploadChange: setFolderUpload,
+    canWrite: true,
+    onClose: () => {},
+  });
 }
 
 function PrivateStoreHarness({ profileId }) {
@@ -125,9 +145,11 @@ afterEach(async () => {
   }
   queue = null;
   privateStore = null;
+  pendingFolderSelection = undefined;
   rootNode.innerHTML = "";
   globalThis.fetch = nativeFetch;
   globalThis.XMLHttpRequest = NativeXMLHttpRequest;
+  dom.window.confirm = nativeConfirm;
 });
 
 test("uploads are serial and independent; retry keeps the selected File, metadata, and UUID", async () => {
@@ -233,8 +255,10 @@ test("the chooser enqueues multiple files and keeps visible progress below 100% 
     return task.promise;
   });
   await render(createElement(UploadHarness, { store, showDialog: true }));
-  const dialog = document.querySelector('[role="dialog"][aria-label="Upload files"]');
+  const dialog = document.querySelector('[role="dialog"][aria-labelledby="files-upload-title"]');
   assert.ok(dialog);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(document.activeElement, dialog.querySelector(".files-upload-choose"), "the chooser receives initial focus");
   const input = [...dialog.querySelectorAll("input[type=file]")].find((element) => element.multiple);
   assert.ok(input);
   const selected = [makeFile("one.txt"), makeFile("two.txt")];
@@ -259,6 +283,49 @@ test("the chooser enqueues multiple files and keeps visible progress below 100% 
   await act(async () => { pending[1].task.resolve(await makeAck(pending[1].file, pending[1].metadata, pending[1].id)); });
   await waitForReact(allRowsSettled);
   assert.deepEqual(queue.rows.map((row) => row.status), ["complete", "complete"]);
+});
+
+test("dismissing a partial folder plan clears the selection and leaves created folders intact", async () => {
+  const selectedFile = makeFile("notes.txt");
+  const initialPlan = {
+    id: "folder-plan-1",
+    profileId: PROFILE_A,
+    sessionGeneration: 1,
+    folderId: null,
+    courseId: null,
+    files: [{ file: selectedFile, relativePath: "Course/lab/notes.txt", targetPath: "Course/lab" }],
+    directories: [
+      { id: ID_A, path: "Course", name: "Course", parentPath: null, created: true },
+      { id: ID_B, path: "Course/lab", name: "lab", parentPath: "Course", created: false },
+    ],
+    status: "error",
+    error: "The folder request failed.",
+  };
+  const createdFolders = [{ id: ID_A, parent_id: null, name: "Course" }];
+  const requests = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const path = String(url);
+    requests.push({ path, method: init.method ?? "GET" });
+    if (path.startsWith("/api/file-folders")) {
+      const view = new URL(path, dom.window.location.origin).searchParams.get("view");
+      return new Response(JSON.stringify({ folders: view === "active" ? createdFolders : [], activities: { folders: [] } }), { headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({ files: [], activities: { files: [], folders: [] } }), { headers: { "content-type": "application/json" } });
+  };
+  dom.window.confirm = (message) => { requests.push({ confirm: message }); return true; };
+
+  await render(createElement(FolderPlanHarness, { store: makeStore(async () => { assert.fail("Dismissal must not upload files."); }), initialPlan }));
+  await waitForReact(() => requests.filter((request) => request.path).length >= 5);
+  const dialog = document.querySelector('[role="dialog"][aria-labelledby="files-upload-title"]');
+  const dismiss = [...dialog.querySelectorAll("button")].find((button) => button.textContent.trim() === "Dismiss selection");
+  assert.ok(dismiss, "an idle partial folder plan can be dismissed");
+
+  await act(async () => { dismiss.click(); });
+  await waitForReact(() => pendingFolderSelection === null);
+  assert.deepEqual(createdFolders, [{ id: ID_A, parent_id: null, name: "Course" }], "the server-created folder remains in Files");
+  assert.ok(requests.some((request) => request.confirm?.includes("Folders already created in Files will stay in place.")), "dismissing explains that created folders are retained");
+  assert.ok(requests.filter((request) => request.path).every((request) => request.method === "GET"), "dismissal does not delete folders or start uploads");
+  assert.equal(queue.rows.length, 0, "the selected original file is not uploaded during dismissal");
 });
 
 test("oversize and invalid-name selections remain as per-file validation errors", async () => {

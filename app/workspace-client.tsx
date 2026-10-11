@@ -61,9 +61,14 @@ import AcademicCalendar from "./academic-calendar";
 import { usePrivateFiles } from "./use-private-files";
 import { useFileActivity } from "./use-file-activity";
 import { useFileUploads } from "./use-file-uploads";
-import FileUploadDialog from "./file-upload-dialog";
+import FileUploadDialog, { type PendingFolderUpload } from "./file-upload-dialog";
 import FilesBrowser from "./files-browser";
-import type { FilesBrowserPreferences } from "../lib/files-browser";
+import {
+  DEFAULT_FILES_BROWSER_PREFERENCES,
+  FILES_BROWSER_APPEARANCE_VERSION,
+  migrateFilesBrowserPreferences,
+  type FilesBrowserPreferences,
+} from "../lib/files-browser";
 import { restoreTrashItems, type TrashUndoReceipt } from "../lib/files-trash-operations";
 import { NativeDocumentEditor } from "./native-document-editor";
 import type { NativeDocumentCreate } from "../lib/native-documents";
@@ -429,7 +434,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const [syllabusTextCourseId, setSyllabusTextCourseId] = useState<string | null>(null);
   const [syllabusPreviewFileId, setSyllabusPreviewFileId] = useState<string | null>(null);
   const workspaceLoadGeneration = useRef(0);
-  const [extraData, setExtraData] = useState<{ courseDetails: Record<string, CourseDetails>; syllabusDrafts: SyllabusDraft[]; study: StudyData; filePreferences: FilesBrowserPreferences; widgetAppearance?: WidgetAppearanceState }>({ courseDetails: {}, syllabusDrafts: [], study: emptyStudy(), filePreferences: { filter: "all", view: "list" } });
+  const [extraData, setExtraData] = useState<{ courseDetails: Record<string, CourseDetails>; syllabusDrafts: SyllabusDraft[]; study: StudyData; filePreferences: FilesBrowserPreferences; widgetAppearance?: WidgetAppearanceState }>({ courseDetails: {}, syllabusDrafts: [], study: emptyStudy(), filePreferences: DEFAULT_FILES_BROWSER_PREFERENCES });
   const [now, setNow] = useState(() => new Date());
   const today = dayKey(now, profile.timezone);
   const assignments = storedAssignments.map((item) => ({ ...item, status: assignmentStatus(item, today), due: dateLabel(item.dateKey) })).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || (a.dueTime ?? "").localeCompare(b.dueTime ?? ""));
@@ -440,7 +445,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const [filePreview, setFilePreview] = useState<PrivateFile | null>(null);
   const [filePreviewReadOnly, setFilePreviewReadOnly] = useState(false);
   const [fileDialog, setFileDialog] = useState<{ initial?: PrivateFile; defaults?: Partial<FileMetadata>; reviewId?: string } | null>(null);
-  const [uploadDialog, setUploadDialog] = useState<{ profileId: string; folderId: string | null; courseId: string } | null>(null);
+  const [uploadDialog, setUploadDialog] = useState<{ profileId: string; folderId: string | null; courseId: string; generation: number; mode?: "files" | "folder" } | null>(null);
+  const [pendingFolderUpload, setPendingFolderUpload] = useState<PendingFolderUpload | null>(null);
   const [filesDataRevision, setFilesDataRevision] = useState(0);
   const [nativeDocumentDialog, setNativeDocumentDialog] = useState<{ file?: PrivateFile; create?: NativeDocumentCreate; readOnly?: boolean } | null>(null);
   const [nativeDocumentDraft, setNativeDocumentDraft] = useState<{ fileId: string | null; name: string; body: string; dirty: boolean } | null>(null);
@@ -536,7 +542,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     }
   };
   useEffect(() => { if (saveState.status === "saved") void refreshFiles(); }, [saveState.status, refreshFiles]);
-  useSaveProtection(saveState.dirty || profilePending || fileUploads.dirty || fileUploads.busy || !!nativeDocumentDraft?.dirty || !!organizationState?.dirty || !!organizationState?.busy || undoBusy);
+  useSaveProtection(saveState.dirty || profilePending || fileUploads.dirty || fileUploads.busy || !!pendingFolderUpload || !!nativeDocumentDraft?.dirty || !!organizationState?.dirty || !!organizationState?.busy || undoBusy);
   const topSearchRef = useRef<HTMLInputElement | null>(null);
   const study = extraData.study;
   const activeGpaSystem = experimentalMode ? "4.0 scale" : profile.gpa_system;
@@ -573,6 +579,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
 
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
+      if (page === "files" && filesBrowserEnabled) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         if (!appearanceOpen) topSearchRef.current?.focus();
@@ -580,7 +587,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     };
     window.addEventListener("keydown", focusSearch);
     return () => window.removeEventListener("keydown", focusSearch);
-  }, [appearanceOpen]);
+  }, [appearanceOpen, filesBrowserEnabled, page]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -608,7 +615,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         const decoded = decodeWorkspaceState(data.dashboard);
         const loadedDetails = decoded.data ?? { assignments: [], manualEvents: [], dashboardView: "cards" as const };
         const courseIds = new Set((data.courses ?? []).map((c) => c.id));
-        const details = { ...loadedDetails, assignments: loadedDetails.assignments.map((a) => ({ ...a, courseId: courseIds.has(a.courseId) ? a.courseId : "" })), manualEvents: loadedDetails.manualEvents.map((e) => ({ ...e, time: legacyEventTime(e.time), courseId: courseIds.has(e.courseId) ? e.courseId : "" })), calendarFilter: (loadedDetails.calendarFilter === "all" || loadedDetails.calendarFilter === "personal") || courseIds.has(loadedDetails.calendarFilter ?? "") ? loadedDetails.calendarFilter! : "all", courseDetails: loadedDetails.courseDetails ?? {}, syllabusDrafts: loadedDetails.syllabusDrafts ?? [], study: loadedDetails.study ?? emptyStudy(), filePreferences: loadedDetails.filePreferences ?? { filter: "all", view: "list" as const } };
+        const details = { ...loadedDetails, assignments: loadedDetails.assignments.map((a) => ({ ...a, courseId: courseIds.has(a.courseId) ? a.courseId : "" })), manualEvents: loadedDetails.manualEvents.map((e) => ({ ...e, time: legacyEventTime(e.time), courseId: courseIds.has(e.courseId) ? e.courseId : "" })), calendarFilter: (loadedDetails.calendarFilter === "all" || loadedDetails.calendarFilter === "personal") || courseIds.has(loadedDetails.calendarFilter ?? "") ? loadedDetails.calendarFilter! : "all", courseDetails: loadedDetails.courseDetails ?? {}, syllabusDrafts: loadedDetails.syllabusDrafts ?? [], study: loadedDetails.study ?? emptyStudy(), filePreferences: loadedDetails.filePreferences ?? DEFAULT_FILES_BROWSER_PREFERENCES };
         setProfile(data.profile); setProfileDraft(data.profile); setProfilePending(false);
         setCourses(data.courses ?? []); setWorkspaces(decoded.workspaces);
         setActiveWorkspaceId(decoded.activeWorkspaceId); setNotes(decoded.notes);
@@ -629,9 +636,9 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     catch (error) { autosave.invalidate(error instanceof Error ? error.message : "Invalid workspace data."); }
   }, [activeWorkspaceId, notes, workspaces, storedAssignments, manualEvents, dashboardView, calendarFilter, extraData, courses, autosave, experimentalMode, onboardingTest]);
 
-  const downloadUnsavedWork = () => downloadDraft("eduessentials-unsaved-work.json", { profile, settingsDraft: profileDraft, courses, assignments: storedAssignments, manualEvents, workspaces, activeWorkspaceId, notes, dashboardView, calendarFilter, nativeDocumentDraft, fileOrganizationDraft: organizationState?.draft, fileUploads: fileUploads.draft, ...extraData });
+  const downloadUnsavedWork = () => downloadDraft("eduessentials-unsaved-work.json", { profile, settingsDraft: profileDraft, courses, assignments: storedAssignments, manualEvents, workspaces, activeWorkspaceId, notes, dashboardView, calendarFilter, nativeDocumentDraft, fileOrganizationDraft: organizationState?.draft, fileUploads: fileUploads.draft, pendingFolderUpload: pendingFolderUpload && { profileId: pendingFolderUpload.profileId, sessionGeneration: pendingFolderUpload.sessionGeneration, folderId: pendingFolderUpload.folderId, courseId: pendingFolderUpload.courseId, files: pendingFolderUpload.files.map(({ relativePath }) => relativePath), directories: pendingFolderUpload.directories.map(({ id, path, parentPath, created }) => ({ id, path, parentPath, created })) }, ...extraData });
   const reloadWorkspace = () => {
-    if (fileUploads.dirty || fileUploads.busy) { flash("Finish or dismiss retained uploads before reloading. Review uploads to download the original selections."); return; }
+    if (fileUploads.dirty || fileUploads.busy || pendingFolderUpload) { flash("Finish or dismiss retained uploads before reloading. Review uploads to download the original selections."); return; }
     if (nativeDocumentDialog) { flash("Save or download your text draft and close its editor before reloading the workspace."); return; }
     if (organizationState) { flash("Close the Files dialog before reloading the workspace."); return; }
     if (undoBusy) { flash("Wait for Undo to finish before reloading the workspace."); return; }
@@ -641,7 +648,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   };
 
   const prepareAssistant = async () => {
-    if (experimentalMode || profilePending || editor || syllabusId || syllabusAttachment || nativeDocumentDialog || organizationState || fileUploads.dirty || fileStore.busy || undoBusy) throw new Error("Save and close pending editors before asking the assistant.");
+    if (experimentalMode || profilePending || editor || syllabusId || syllabusAttachment || nativeDocumentDialog || organizationState || fileUploads.dirty || pendingFolderUpload || fileStore.busy || undoBusy) throw new Error("Save and close pending editors before asking the assistant.");
     await autosave.flush();
     const current = autosave.getSnapshot();
     if (!current.ready || current.dirty || current.status !== "saved") throw new Error("Wait for saving to finish, or resolve the workspace save message first.");
@@ -786,7 +793,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const flash = (message: string) => setToast(message);
 
   const applyExperimentalData = (density: ExperimentalDensity) => {
-    if (fileUploads.dirty || fileUploads.busy) { flash("Finish or dismiss retained uploads before loading preview data."); return; }
+    if (fileUploads.dirty || fileUploads.busy || pendingFolderUpload) { flash("Finish or dismiss retained uploads before loading preview data."); return; }
     if (nativeDocumentDialog) { flash("Close the text editor before loading preview data."); return; }
     if (organizationState) { flash("Close the Files dialog before loading preview data."); return; }
     if (undoBusy) { flash("Wait for Undo to finish before loading preview data."); return; }
@@ -1058,7 +1065,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }} />;
 
   return (
-    <div className={`app-shell reference-ui ${customizing ? "is-customizing" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div className={`app-shell reference-ui ${page === "files" && filesBrowserEnabled ? "files-workspace" : ""} ${customizing ? "is-customizing" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <div className="mountain-backdrop" aria-hidden="true" />
 
       <a className="skip-link" href="#main-content">Skip to main content</a>
@@ -1224,10 +1231,23 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       {nativeDocumentDialog && <NativeDocumentEditor key={nativeDocumentDialog.file?.id ?? nativeDocumentDialog.create!.id} profileId={initialProfile.id} file={nativeDocumentDialog.file} create={nativeDocumentDialog.create} canWrite={!nativeDocumentDialog.readOnly && !experimentalMode && saveState.ready && !profilePending} onSaved={handleNativeDocumentSaved} onClose={closeNativeDocument} onDraftChange={handleNativeDocumentDraft} />}
       {fileDialog && <FileEditor key={fileDialog.initial?.id ?? fileDialog.reviewId ?? "new-file"} store={fileStore} courses={courses} assignments={assignments} initial={fileDialog.initial} defaults={fileDialog.defaults} canWrite={canWriteFiles} onClose={() => setFileDialog(null)} onSaved={(file) => { if (fileDialog.initial?.state === "ready") handleFileOpened(file); if (fileDialog.reviewId) setExtraData((current) => ({ ...current, syllabusDrafts: current.syllabusDrafts.map((draft) => draft.id === fileDialog.reviewId ? { ...draft, sourceFileId: file.id, sourceName: file.name } : draft) })); }} />}
       {filePreview && <FilePreview key={`${initialProfile.id}-${fileActionSession.generation}-${filePreview.id}`} file={fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview} store={fileStore} onOpened={handleFileOpened} onClose={() => { setFilePreview(null); setFilePreviewReadOnly(false); setSyllabusPreviewFileId(null); }} canWrite={canWriteFiles && !filePreviewReadOnly} onEdit={() => { setFileDialog({ initial: fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview }); setFilePreview(null); setSyllabusPreviewFileId(null); }} onReview={syllabusPreviewFileId === filePreview.id ? undefined : (file, text) => { createReview(file, text); setFilePreview(null); }} />}
-      {uploadDialog && <FileUploadDialog queue={fileUploads} currentProfileId={initialProfile.id} defaults={uploadDialog} canWrite={uploadDialog.profileId === initialProfile.id && canWriteFiles && !profilePending && !organizationState && !nativeDocumentDialog} onClose={() => setUploadDialog(null)} />}
+      {uploadDialog && <FileUploadDialog
+        key={`${uploadDialog.profileId}:${uploadDialog.folderId ?? "root"}:${uploadDialog.courseId}:${uploadDialog.generation}:${uploadDialog.mode ?? "files"}`}
+        queue={fileUploads}
+        currentProfileId={initialProfile.id}
+        currentSessionGeneration={fileActionSession.generation}
+        defaults={uploadDialog}
+        mode={pendingFolderUpload ? "folder" : uploadDialog.mode}
+        courses={courses}
+        changeToken={fileStore.files}
+        folderUpload={pendingFolderUpload}
+        onFolderUploadChange={setPendingFolderUpload}
+        canWrite={uploadDialog.profileId === initialProfile.id && canWriteFiles && !profilePending && !organizationState && !nativeDocumentDialog}
+        onClose={() => setUploadDialog(null)}
+      />}
       <div className="toast-stack">
-        <SaveToast active={fileUploads.rows.length > 0 && !uploadDialog} title={fileUploads.busy ? "Uploading files…" : fileUploads.dirty ? "Uploads need attention" : "Uploads complete"} message="Review individual results or retry retained selections." loading={fileUploads.busy}>
-          <button type="button" onClick={() => setUploadDialog({ profileId: initialProfile.id, folderId: null, courseId: "" })}>Review uploads</button>
+        <SaveToast active={(fileUploads.rows.length > 0 || !!pendingFolderUpload) && !uploadDialog} title={pendingFolderUpload ? "Folder upload needs attention" : fileUploads.busy ? "Uploading files…" : fileUploads.dirty ? "Uploads need attention" : "Uploads complete"} message={pendingFolderUpload ? "Your selected folder and created folder IDs are retained for retry." : "Review individual results or retry retained selections."} loading={fileUploads.busy || pendingFolderUpload?.status === "creating"}>
+          <button type="button" onClick={() => setUploadDialog({ profileId: pendingFolderUpload?.profileId ?? initialProfile.id, folderId: pendingFolderUpload?.folderId ?? null, courseId: pendingFolderUpload?.courseId ?? "", generation: pendingFolderUpload?.sessionGeneration ?? fileActionSession.generation, mode: pendingFolderUpload ? "folder" : "files" })}>Review uploads</button>
         </SaveToast>
         <SaveToast
           active={showWorkspaceToast}
@@ -1710,18 +1730,21 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }
 
   function renderFiles() {
-    const prefs = extraData.filePreferences;
+    const storedPreferences = extraData.filePreferences;
+    const layoutMigrationPending = filesBrowserEnabled && storedPreferences.appearanceVersion !== FILES_BROWSER_APPEARANCE_VERSION;
+    const prefs = filesBrowserEnabled ? migrateFilesBrowserPreferences(storedPreferences) : storedPreferences;
     if (filesBrowserEnabled) return <FilesBrowser
       profileId={initialProfile.id} courses={courses} assignments={storedAssignments} courseDetails={extraData.courseDetails}
       store={fileStore} layout={prefs.view}
-      preferences={prefs} currentTerm={profile.current_term ?? ""} onFileOpened={handleFileOpened}
+      preferences={prefs} layoutMigrationPending={layoutMigrationPending} currentTerm={profile.current_term ?? ""} onFileOpened={handleFileOpened}
       onPreferencesChange={(filePreferences) => commitAcademic(courses, { filePreferences })}
       onLayoutChange={(view) => commitAcademic(courses, { filePreferences: { ...prefs, view } })}
       onOrganizationSaved={handleOrganizationSaved} onOrganizationStateChange={handleOrganizationState}
       dataRevision={filesDataRevision}
       onTrashCompleted={handleTrashCompleted}
-      onUpload={(folderId, courseId) => { if (!organizationState && !nativeDocumentDialog) setUploadDialog({ profileId: initialProfile.id, folderId, courseId }); }}
-      onUploadFiles={(files, folderId, courseId) => { if (!organizationState && !nativeDocumentDialog && canWriteFiles && !profilePending) { fileUploads.enqueue(files, { folderId, courseId }); setUploadDialog({ profileId: initialProfile.id, folderId, courseId }); } }}
+      onUpload={(folderId, courseId) => { if (!organizationState && !nativeDocumentDialog) setUploadDialog({ profileId: initialProfile.id, folderId, courseId, generation: fileActionSession.generation, mode: "files" }); }}
+      onUploadFolder={(folderId, courseId) => { if (!organizationState && !nativeDocumentDialog) setUploadDialog({ profileId: initialProfile.id, folderId, courseId, generation: fileActionSession.generation, mode: "folder" }); }}
+      onUploadFiles={(files, folderId, courseId) => { if (!organizationState && !nativeDocumentDialog && canWriteFiles && !profilePending) { fileUploads.enqueue(files, { folderId, courseId }); setUploadDialog({ profileId: initialProfile.id, folderId, courseId, generation: fileActionSession.generation, mode: "files" }); } }}
       onNewTextFile={(folderId, courseId, name) => { if (canWriteFiles && !profilePending && !nativeDocumentDialog && !organizationState) setNativeDocumentDialog({ create: { id: crypto.randomUUID(), folderId, courseId, name, body: "" } }); }}
       onOpen={(file, options) => { if (nativeDocumentDialog || organizationState) return; if (file.content_backend === "native-text" && file.state === "ready" && !file.trashed_at) setNativeDocumentDialog({ file, readOnly: options?.readOnly }); else { setFilePreviewReadOnly(!!options?.readOnly); setFilePreview(file); } }}
       onEdit={(initial) => { if (!organizationState) setFileDialog({ initial }); }}
@@ -1739,7 +1762,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }
 
   function renderSettings() {
-    const accountActionBlocked = profilePending || saveState.dirty || fileStore.busy || fileUploads.dirty || fileUploads.busy || !!nativeDocumentDraft?.dirty || !!organizationState?.dirty || !!organizationState?.busy || undoBusy;
+    const accountActionBlocked = profilePending || saveState.dirty || fileStore.busy || fileUploads.dirty || fileUploads.busy || !!pendingFolderUpload || !!nativeDocumentDraft?.dirty || !!organizationState?.dirty || !!organizationState?.busy || undoBusy;
     return <div className="page settings-page">
       {renderPageHeader("Make it yours", "Settings", "Your profile and preferences follow your Google account.")}
       <ProfileEditor initialProfile={profile} onSaved={setProfile} onDraftChange={handleProfileDraft} />

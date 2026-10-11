@@ -423,7 +423,7 @@ test("Archive dialog captures the editable term label, downloads its draft, and 
   await waitUntil(() => !rootNode.querySelector(".file-archive-dialog"), "the root unarchive acknowledgement");
   const unarchiveMutation = requests.find(({ method, body }) => method === "PUT" && body?.action === "unarchive");
   assert.deepEqual(unarchiveMutation.body, { action: "unarchive", id: PERSONAL_ROOT, revision: 2 });
-  await click("My files");
+  await click("Files");
   await waitUntil(() => rowNames().includes("Class notes"), "the unarchived root in My files");
 });
 

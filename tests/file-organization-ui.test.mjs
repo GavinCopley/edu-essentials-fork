@@ -10,6 +10,7 @@ for (const name of [
   "KeyboardEvent", "Event", "FormData", "PopStateEvent", "MutationObserver",
 ]) globalThis[name] = dom.window[name];
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
+globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 Object.defineProperty(dom.window, "requestAnimationFrame", { configurable: true, value: (callback) => setTimeout(() => callback(Date.now()), 0) });
 Object.defineProperty(dom.window, "cancelAnimationFrame", { configurable: true, value: (id) => clearTimeout(id) });
@@ -267,7 +268,7 @@ test("create folders at root and nested course locations, allow duplicate names,
   await waitUntil(() => rootNode.textContent.includes("Root notes.txt"), "the initial Files list");
   const newTrigger = button("New");
   await act(async () => newTrigger.click());
-  assert.deepEqual(menuLabels(), ["Upload file", "New text file", "New folder"]);
+  assert.deepEqual(menuLabels(), ["Upload files", "Upload folder", "New folder", "Text document"]);
   await click("New folder");
   assert.match(dialog().textContent, /Create a folder in My files/);
   assert.ok(document.activeElement === field("Folder name"), "the folder name field receives focus");
@@ -296,7 +297,7 @@ test("create folders at root and nested course locations, allow duplicate names,
   assert.deepEqual(menuLabels(), ["Open folder", "Add to Starred", "New text file", "New folder", "Rename folder", "Move to…", "Move to Trash", "Details"]);
   await act(async () => document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   await click("Actions for Labs");
-  assert.deepEqual(menuLabels(), ["New text file", "New folder"]);
+  assert.deepEqual(menuLabels(), ["Select visible", "New folder", "Text document"]);
   await click("New folder");
   await setValue(field("Folder name"), "Week 1");
   await click("Create folder", dialog());
@@ -429,7 +430,7 @@ test("stale rename and move drafts remain visible, blocked descendant destinatio
   assert.match(dialog().textContent, /Refresh Files, then close and reselect/i);
   assert.ok(rootNode.querySelector('[role="dialog"]'), "the failed move draft remains open");
   await click("Close and reselect items", moveDialog);
-  await waitUntil(() => !rootNode.querySelector('[role="dialog"]') && rootNode.textContent.includes("0 items selected"), "clearing stale selection for reselection");
+  await waitUntil(() => !rootNode.querySelector('[role="dialog"]') && !rootNode.querySelector(".files-selection-toolbar"), "clearing stale selection for reselection");
   assert.equal(state.folders.find((folder) => folder.id === PERSONAL_ROOT)?.parent_id, null, "a rejected move leaves its folder where it was");
 });
 

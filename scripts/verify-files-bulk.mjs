@@ -87,7 +87,7 @@ async function newPage(width = 1440, options = {}) {
   }
   await page.goto(`${baseUrl}/files?view=my-files&layout=list`);
   await page.locator(".files-items .files-item").first().waitFor({ state: "visible" });
-  await page.getByRole("group", { name: "Bulk file actions" }).waitFor({ state: "visible" });
+  assert.equal(await page.getByRole("group", { name: "Bulk file actions" }).count(), 0, "the zero-selected bulk toolbar stays hidden");
   return { context, page };
 }
 
@@ -149,11 +149,17 @@ async function selectionCount(page, count) {
 async function clearSelection(page) {
   const button = page.getByRole("button", { name: "Clear selection", exact: true });
   if (await button.isVisible() && await button.isEnabled()) await button.click();
-  await page.locator(".files-selection-toolbar > span[aria-live]").getByText(/^0 items selected$/).waitFor({ state: "visible" });
+  await page.getByRole("group", { name: "Bulk file actions" }).waitFor({ state: "detached" });
 }
 
 async function clickView(page, name) {
-  await page.getByRole("navigation", { name: "File views" }).getByRole("button", { name, exact: true }).click();
+  const viewName = name === "My files" ? "Files" : name;
+  await page.getByRole("navigation", { name: "File views" }).getByRole("button", { name: viewName, exact: true }).click();
+}
+
+async function selectVisible(page, currentLocation) {
+  await page.getByRole("button", { name: `Actions for ${currentLocation}`, exact: true }).click();
+  await page.getByRole("menu").getByRole("menuitem", { name: "Select visible", exact: true }).click();
 }
 
 async function noOverflow(page, width) {
@@ -231,7 +237,7 @@ async function screenshot(page, name, { fullPage = true } = {}) {
 
 async function openNewUpload(page) {
   await page.getByRole("button", { name: "New", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Upload file", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Upload files", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Upload files" });
   await dialog.waitFor({ state: "visible" });
   return dialog;
@@ -271,7 +277,7 @@ async function verifyResponsive(width) {
     await page.getByRole("button", { name: "New", exact: true }).click();
     evidence.menu = await menuEvidence(page, width);
     evidence.screenshots.push(await screenshot(page, `w${width}-new-menu.png`, { fullPage: false }));
-    await page.getByRole("menuitem", { name: "Upload file", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Upload files", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Upload files" });
     await dialog.waitFor({ state: "visible" });
     await dialogEvidence(page, dialog, width);
@@ -306,7 +312,7 @@ async function verifyResponsive(width) {
     assert.equal(attempts[0].contentType, "application/octet-stream", `upload uses the byte upload content type at ${width}px`);
     assert.ok(await fixture(page, "sameUploadFileReference", second), `retry sends the same File object at ${width}px`);
     evidence.uploadAttempts = attempts.map(({ id, attempt, profileId, metadata }) => ({ id, attempt, profileId, metadata }));
-    await dialog.locator(".files-upload-footer").getByRole("button", { name: "Close uploads", exact: true }).click();
+    await dialog.locator(".files-upload-footer").getByRole("button", { name: "Close", exact: true }).click();
     await dialog.waitFor({ state: "hidden" });
 
     await page.getByRole("button", { name: "Move to Trash", exact: true }).click();
@@ -435,8 +441,7 @@ async function verifyOverlapAndManagedPins(page) {
   await page.getByRole("button", { name: "Open folder: BIO 201", exact: true }).click();
   await page.locator(".files-syllabus-pin").waitFor({ state: "visible" });
   assert.equal(await page.locator(".files-syllabus-pin input[type=checkbox]").count(), 0, "attached syllabus action is not a bulk-selectable file row");
-  const courseGroup = page.getByRole("group", { name: "Bulk file actions" });
-  await courseGroup.getByRole("button", { name: "Select visible", exact: true }).click();
+  await selectVisible(page, "BIO 201");
   await selectionCount(page, 1);
   assert.equal(await page.getByRole("checkbox", { name: /Attached syllabus.pdf/ }).count(), 0, "attached syllabus virtual row never appears in bulk selection");
   await clearSelection(page);
@@ -459,7 +464,7 @@ async function verifyCourseUpload(page) {
   assert.equal(record.metadata.folderId, "11111111-1111-4111-8111-111111111111");
   assert.equal(record.metadata.courseId, "biology");
   assert.equal(record.profileId, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
-  await dialog.locator(".files-upload-footer").getByRole("button", { name: "Close uploads", exact: true }).click();
+  await dialog.locator(".files-upload-footer").getByRole("button", { name: "Close", exact: true }).click();
   return record;
 }
 
@@ -476,7 +481,7 @@ async function verifyBulkMoveAndDrop(page) {
   assert.equal(dropRecord.name, "child-row-drop.txt");
   assert.equal(dropRecord.metadata.folderId, "22222222-2222-4222-8222-222222222222", "dropping on a child row uses the current folder rather than the child destination");
   assert.equal(dropRecord.metadata.courseId, "", "custom-folder drop does not invent a managed course association");
-  await dropDialog.locator(".files-upload-footer").getByRole("button", { name: "Close uploads", exact: true }).click();
+  await dropDialog.locator(".files-upload-footer").getByRole("button", { name: "Close", exact: true }).click();
   await clickView(page, "My files");
 
   const source = page.locator(".files-items .files-item").filter({ hasText: "Move me.txt" }).first();
@@ -623,7 +628,7 @@ async function verifyProfileABA() {
     assert.ok(await fixture(page, "sameUploadFileReference", heldName), "A-B-A retry retains the original File object");
     assert.equal((await accountState(page, "getFiles", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")).filter((file) => file.name === heldName).length, 1);
     assert.equal((await accountState(page, "getFiles", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")).some((file) => file.name === heldName), false);
-    await uploadDialog.locator(".files-upload-footer").getByRole("button", { name: "Close uploads", exact: true }).click();
+    await uploadDialog.locator(".files-upload-footer").getByRole("button", { name: "Close", exact: true }).click();
 
     await selectItem(page, "Loose read.txt");
     const baselineAnchors = (await fixture(page, "getAnchorClicks")).length;

@@ -192,8 +192,12 @@ export default function FileOrganizationDialog({
       }
       if (event.key !== "Tab") return;
       const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>(
-        "button:not(:disabled), input:not(:disabled), a[href], [tabindex]:not([tabindex='-1'])",
-      )];
+        "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex='-1'])",
+      )].filter((element) => {
+        if (element.closest("[hidden], [inert], [aria-hidden='true']")) return false;
+        const style = getComputedStyle(element);
+        return style.display !== "none" && style.visibility !== "hidden";
+      });
       if (!focusable.length) return;
       const first = focusable[0], last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
@@ -267,10 +271,10 @@ export default function FileOrganizationDialog({
       ? "Move to…"
       : `Rename ${request.item.type}`;
 
-  return <div className="files-dialog-backdrop file-organization-backdrop" role="presentation" onMouseDown={(event) => {
+  return <div className="files-dialog-backdrop file-organization-backdrop files-action-sheet-backdrop" role="presentation" onMouseDown={(event) => {
     if (event.target === event.currentTarget && !busy) close();
   }}>
-    <section ref={dialogRef} className="files-details-dialog file-organization-dialog" role="dialog" aria-modal="true" aria-labelledby="file-organization-title" aria-describedby="file-organization-description">
+    <section ref={dialogRef} className="files-details-dialog file-organization-dialog files-action-sheet" role="dialog" aria-modal="true" aria-labelledby="file-organization-title" aria-describedby="file-organization-description">
       <div className="files-details-heading">
         <div><p>Files</p><h2 id="file-organization-title">{title}</h2></div>
         <button type="button" className="files-icon-button" aria-label="Close Files dialog" disabled={busy} onClick={() => close()}><X size={18} /></button>
