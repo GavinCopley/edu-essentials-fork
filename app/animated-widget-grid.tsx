@@ -3,6 +3,12 @@
 import { Component, createRef, type ReactNode, type CSSProperties } from "react";
 import { calculateWidgetPlacements, type WidgetResizePriority } from "../lib/widget-layout";
 import { getWidgetResizeContentFilter } from "../lib/widget-resize";
+import {
+  createWidgetResizeSettleFrames,
+  WIDGET_RESIZE_CONTENT_REVEAL_DURATION_MS,
+  WIDGET_RESIZE_SETTLE_DURATION_MS,
+  WIDGET_RESIZE_SETTLE_EASING,
+} from "../lib/widget-resize-motion";
 import type { WidgetResizePreview } from "./use-widget-resize";
 
 export { calculateWidgetPlacements };
@@ -199,7 +205,7 @@ export default class AnimatedWidgetGrid extends Component<Props, Record<string, 
       const resizeMotion = this.props.resizeMotion || previous.resizeMotion;
       const configuredTiming = Number.isFinite(configuredDuration) ? configuredDuration : 280;
       const settling = card.dataset.widgetId === releasingId;
-      const duration = settling ? 420 : resizeMotion ? Math.min(configuredTiming, 260) : configuredTiming;
+      const duration = settling ? WIDGET_RESIZE_SETTLE_DURATION_MS : resizeMotion ? Math.min(configuredTiming, 260) : configuredTiming;
       if (configuredTiming <= 0) { delete card.dataset.widgetResizeSettling; continue; }
       const x = old.left - rect.left, y = old.top - rect.top;
       const sx = old.width / rect.width, sy = old.height / rect.height;
@@ -207,21 +213,11 @@ export default class AnimatedWidgetGrid extends Component<Props, Record<string, 
         delete card.dataset.widgetResizeSettling;
         continue;
       }
-      const frames: Keyframe[] = settling ? Array.from({ length: 31 }, (_, index) => {
-        const offset = index / 30;
-        const progress = index === 30 ? 1 : 1 - Math.exp(-7 * offset) * (Math.cos(11 * offset) + 7 / 11 * Math.sin(11 * offset));
-        return {
-          offset,
-          width: `${Math.max(1, old.width + (rect.width - old.width) * progress)}px`,
-          height: `${Math.max(1, old.height + (rect.height - old.height) * progress)}px`,
-          transform: `translate(${x * (1 - progress)}px, ${y * (1 - progress)}px)`,
-          transformOrigin: "top left",
-        };
-      }) : [
+      const frames: Keyframe[] = settling ? createWidgetResizeSettleFrames(old, rect) : [
         { transform: `translate(${x}px, ${y}px) scale(${sx}, ${sy})`, transformOrigin: "top left" },
         { transform: "none", transformOrigin: "top left" },
       ];
-      const animation = card.animate(frames, { duration, easing: settling ? "linear" : resizeMotion ? "cubic-bezier(0.22, 1.18, 0.36, 1)" : "cubic-bezier(0.22, 1, 0.36, 1)" });
+      const animation = card.animate(frames, { duration, easing: settling ? WIDGET_RESIZE_SETTLE_EASING : resizeMotion ? "cubic-bezier(0.22, 1.18, 0.36, 1)" : "cubic-bezier(0.22, 1, 0.36, 1)" });
       this.animations.add(animation);
       if (settling) this.settlingAnimations.set(card, animation);
       animation.onfinish = animation.oncancel = () => {
@@ -233,7 +229,7 @@ export default class AnimatedWidgetGrid extends Component<Props, Record<string, 
       };
       const frame = card.querySelector<HTMLElement>(".widget-frame");
       if (settling && frame && previous.resizePreview?.blurPx) {
-        const unblur = frame.animate([{ filter: getWidgetResizeContentFilter(previous.resizePreview.blurPx) }, { filter: getWidgetResizeContentFilter(0) }], { duration: 220, easing: "ease-out" });
+        const unblur = frame.animate([{ filter: getWidgetResizeContentFilter(previous.resizePreview.blurPx) }, { filter: getWidgetResizeContentFilter(0) }], { duration: WIDGET_RESIZE_CONTENT_REVEAL_DURATION_MS, easing: "ease-out" });
         this.animations.add(unblur);
         unblur.onfinish = unblur.oncancel = () => this.animations.delete(unblur);
       }

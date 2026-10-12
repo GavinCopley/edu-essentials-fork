@@ -102,10 +102,14 @@ import OnboardingFlow from "./onboarding-flow";
 import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspace-codec";
 import ProfileEditor from "./profile-editor";
 import AcademicAssistant from "./academic-assistant";
+import DashboardAiSummary from "./dashboard-ai-summary";
+import ClassCardExpansion from "./class-card-expansion";
+import { dashboardFocus } from "../lib/dashboard-focus";
 import SaveToast from "./save-toast";
 import type { Profile } from "../lib/profile";
 import "./auth.css";
 import "./reference-ui.css";
+import "./dashboard.css";
 import "./home-skeleton.css";
 import "./widget-appearance.css";
 import "./widget-block-layout.css";
@@ -556,7 +560,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     dateLabel: dateLabel(today, { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
   };
   const stats = useStudyStats(study.sessions, today, timezone, monday);
-  const dailyPercent = goalPercent(stats.dailySeconds, study.dailyMinutes), weeklyPercent = goalPercent(stats.weeklySeconds, study.weeklyMinutes);
+  const dailyPercent = goalPercent(stats.dailySeconds, study.dailyMinutes);
   const weeklyCompleted = completedInWeek(assignments, today, profile.timezone, profile.week_starts_on === "Monday");
   useEffect(() => {
     if (onboardingTest) return;
@@ -1665,37 +1669,36 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }
 
   function renderDashboard() {
+    const focusAssignments = dashboardFocus(assignments);
     return (
-      <div className="page">
-        {renderPageHeader("Academic overview", "Your dashboard", "Classes, deadlines, and progress—without the clutter.", <><div className="view-toggle" role="group" aria-label="Dashboard view"><button className={dashboardView === "cards" ? "active" : ""} onClick={() => setDashboardView("cards")}><LayoutGrid size={16} /> Cards</button><button className={dashboardView === "list" ? "active" : ""} onClick={() => setDashboardView("list")}><List size={16} /> List</button></div><button className="primary-button" onClick={() => { setAddClassOpen(true); }}><Plus size={17} /> Add class</button></>)}
-
-        <div className="summary-strip">
-          <div><span className="summary-icon red"><AlertOctagon size={18} /></span><p><strong>{overdueAssignments.length}</strong><small>Overdue</small></p></div>
-          <div><span className="summary-icon amber"><Clock3 size={18} /></span><p><strong>{todayAssignments.length}</strong><small>Due today</small></p></div>
-          <div><span className="summary-icon green"><CheckCircle2 size={18} /></span><p><strong>{weeklyCompleted}</strong><small>Completed this week</small></p></div>
-          <div className="summary-progress"><p><strong>{study.weeklyMinutes ? `${weeklyPercent}%` : "No target"}</strong><small>Weekly study goal</small></p><div className="completion-track"><span style={{ width: `${weeklyPercent}%` }} /></div></div>
-        </div>
-
-        <div className="academic-actions"><button className="secondary-button" onClick={() => setStudyOpen(true)}>Study goals, history & grades</button><button className="secondary-button" onClick={newAssignment}>Add assignment</button><button className="secondary-button" onClick={newReview}>Import syllabus</button>{extraData.syllabusDrafts.map((draft) => <button className="secondary-button" key={draft.id} onClick={() => setSyllabusId(draft.id)}>Resume {draft.course.code || "syllabus review"}</button>)}</div>
+      <div className="page dashboard-page">
+        <section className="dashboard-summary" aria-labelledby="dashboard-summary-title">
+          <DashboardAiSummary profileId={initialProfile.id} prepare={prepareAssistant} experimental={!!experimentalMode} snapshotKey={canonicalJson({ courses, assignments: storedAssignments, manualEvents, study, courseDetails: extraData.courseDetails, files: fileStore.files, today, timezone: profile.timezone })} onOpenAssistant={() => navigate("assistant")} />
+          <div className="dashboard-focus">
+            <div className="dashboard-focus-heading"><span className="dashboard-eyebrow">YOUR NEXT MOVES</span><span>{focusAssignments.length} to do</span></div>
+            {focusAssignments.length ? <div className="dashboard-focus-list">{focusAssignments.slice(0, 3).map((assignment, index) => <button key={assignment.id} className="dashboard-focus-item" onClick={() => setSelectedAssignment(assignment)}><span className="dashboard-focus-number">{String(index + 1).padStart(2, "0")}</span><span className="dashboard-focus-label"><strong>{assignment.title}</strong><small>{courseFor(courses, assignment.courseId).code} · {assignment.dateKey ? assignment.due : "No due date"}</small></span><StatusBadge status={assignment.status} compact /><ChevronRight size={16} /></button>)}</div> : <div className="dashboard-focus-empty"><CheckCircle2 size={28} /><strong>{courses.length ? "You’re all caught up." : "Let’s get your semester set up."}</strong><p>{courses.length ? "No outstanding assignments. Make room for a little review—or a break." : "Add a class or import a syllabus to see your next steps here."}</p><button className="text-button" onClick={courses.length ? newAssignment : () => setAddClassOpen(true)}>{courses.length ? "Add an assignment" : "Add your first class"}<ArrowRight size={14} /></button></div>}
+            <div className="dashboard-focus-counts"><span><i className="dashboard-dot overdue" />{overdueAssignments.length} overdue</span><span><i className="dashboard-dot today" />{todayAssignments.length} due today</span><span><i className="dashboard-dot done" />{weeklyCompleted} done this week</span></div>
+          </div>
+        </section>
+        <section className="dashboard-classes" aria-labelledby="dashboard-classes-title">
+          <div className="section-title-row dashboard-classes-heading"><div className="dashboard-classes-title"><div><h2 id="dashboard-classes-title">Your classes</h2><p>{courses.length} active {courses.length === 1 ? "course" : "courses"} · {courses.reduce((sum, course) => sum + course.credits, 0)} total credits</p></div><div className="view-toggle" role="group" aria-label="Dashboard view"><button aria-pressed={dashboardView === "cards"} className={dashboardView === "cards" ? "active" : ""} onClick={() => setDashboardView("cards")}><LayoutGrid size={16} /> Cards</button><button aria-pressed={dashboardView === "list"} className={dashboardView === "list" ? "active" : ""} onClick={() => setDashboardView("list")}><List size={16} /> List</button></div></div><button className="text-button" onClick={() => setDashboardView(dashboardView === "cards" ? "list" : "cards")}>{dashboardView === "cards" ? "View every assignment" : "Back to classes"} <ArrowRight size={14} /></button></div>
+        <div className="academic-actions dashboard-tools"><button className="secondary-button" onClick={() => setStudyOpen(true)}>Study goals, history & grades</button><button className="secondary-button" onClick={newAssignment}><Plus size={14} />Add assignment</button><button className="secondary-button" onClick={newReview}><Upload size={14} />Import syllabus</button>{dashboardView === "list" && <button className="secondary-button" onClick={() => setAddClassOpen(true)}><Plus size={14} />Add class</button>}{extraData.syllabusDrafts.map((draft) => <button className="secondary-button" key={draft.id} onClick={() => setSyllabusId(draft.id)}>Resume {draft.course.code || "syllabus review"}</button>)}</div>
         {dashboardView === "cards" ? (
-          <section>
-            <div className="section-title-row"><div><h2>Your classes</h2><p>{courses.length} active courses · {courses.reduce((sum, course) => sum + course.credits, 0)} total credits</p></div><button className="text-button" onClick={() => setDashboardView("list")}>View every assignment <ArrowRight size={14} /></button></div>
+          <div>
             <div className="class-grid">
               {courses.map((course) => {
                 const courseAssignments = assignments.filter((assignment) => assignment.courseId === course.id && assignment.status !== "done");
-                return <button key={course.id} className="class-card" onClick={() => setSelectedClass(course)}>
-                  <div className="class-card-visual" style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 18%, white))` }}>
-                    {fileStore.files.filter((f) => f.course_id === course.id && f.kind === "class-image" && f.state === "ready" && !f.trashed_at).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 1).map((f) => <PrivateImage key={f.id} file={f} store={fileStore} />)}<span className="course-watermark">{course.initials}</span><span className="course-pill" style={{ color: course.color }}>{course.code}</span><BookOpen size={34} style={{ color: course.color }} />
-                  </div>
+                return <button key={course.id} className="class-card" data-course-card-id={course.id} aria-haspopup="dialog" aria-expanded={selectedClass?.id === course.id} onClick={() => setSelectedClass(course)}>
+                  {renderClassVisual(course)}
                   <div className="class-card-body"><div><h3>{course.name}</h3><p>{course.instructor} · {course.credits} credits</p></div><div className="class-statuses"><span className="status-overdue"><AlertOctagon size={14} />{courseAssignments.filter((item) => item.status === "overdue").length}<small>overdue</small></span><span className="status-today"><Clock3 size={14} />{courseAssignments.filter((item) => item.status === "today").length}<small>today</small></span><span className="status-later"><Circle size={14} />{courseAssignments.filter((item) => item.status === "later").length}<small>later</small></span></div></div>
                 </button>;
               })}
               <button className="class-card add-class-card" onClick={() => { setAddClassOpen(true); }}><span><Plus size={24} /></span><strong>Add another class</strong><small>Enter it manually or import a syllabus</small></button>
             </div>
-          </section>
+          </div>
         ) : renderAssignmentTable(assignments)}
-
-        {dashboardView === "cards" && <section className="dashboard-upcoming"><div className="section-title-row"><div><h2>Coming up</h2><p>Your nearest deadlines across every class.</p></div><button className="text-button" onClick={() => setDashboardView("list")}>See all <ArrowRight size={14} /></button></div>{renderAssignmentTable(assignments.filter((a) => a.status !== "done").slice(0, 5), true)}</section>}
+        </section>
+        {dashboardView === "cards" && <section className="dashboard-upcoming"><div className="section-title-row"><div><h2>Coming up</h2><p>Your nearest deadlines across every class.</p></div><button className="text-button" onClick={() => setDashboardView("list")}>See all <ArrowRight size={14} /></button></div>{renderAssignmentTable(focusAssignments.slice(0, 5), true)}</section>}
       </div>
     );
   }
@@ -1796,11 +1799,34 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     return <div className="modal-backdrop"><form className="small-modal" onSubmit={(event) => { event.preventDefault(); if (workspaceDialog === "new") createWorkspace(); else renameWorkspace(); }}><div className="modal-header"><div><p className="eyebrow">Home workspace</p><h2>{workspaceDialog === "new" ? "Create a new workspace" : "Rename workspace"}</h2></div><button type="button" className="icon-button" onClick={() => setWorkspaceDialog(null)}><X size={19} /></button></div><label>Workspace name<input required maxLength={80} value={workspaceNameDraft} onChange={(event) => setWorkspaceNameDraft(event.target.value)} placeholder="e.g. Finals Prep" /></label><p className="form-hint">New workspaces start empty so you can build them exactly how you want.</p><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setWorkspaceDialog(null)}>Cancel</button><button className="primary-button">{workspaceDialog === "new" ? "Create workspace" : "Save name"}</button></div></form></div>;
   }
 
+  function renderClassVisual(course: Course, close?: () => void) {
+    return <div className={`class-card-visual${close ? " expanded-class-header" : ""}`} style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 18%, white))` }}>
+      {fileStore.files.filter((file) => file.course_id === course.id && file.kind === "class-image" && file.state === "ready" && !file.trashed_at).sort((first, second) => second.created_at.localeCompare(first.created_at)).slice(0, 1).map((file) => <PrivateImage key={file.id} file={file} store={fileStore} />)}
+      <span className="course-watermark" aria-hidden="true">{course.initials}</span><span className="course-pill" style={{ color: course.color }}>{course.code}</span><BookOpen size={close ? 44 : 34} style={{ color: course.color }} aria-hidden="true" />
+      {close && <button className="secondary-button" onClick={close}>Close class <X size={15} /></button>}
+    </div>;
+  }
+
   function renderClassDetail(course: Course) {
     const items = assignments.filter((a) => a.courseId === course.id), details = extraData.courseDetails[course.id] ?? emptyCourseDetails();
     const average = study.grades.find((g) => g.courseId === course.id && g.system === activeGpaSystem && g.term === activeTerm);
     const studySeconds = study.sessions.filter((s) => s.courseId === course.id).reduce((sum, s) => sum + segmentSeconds(s.segments), 0);
-    return <div className="modal-backdrop side-panel-backdrop"><aside className="detail-panel" role="dialog" aria-modal="true" aria-label="Class details"><div className="modal-header"><h2>{course.code} · {course.name}</h2><button className="secondary-button" onClick={() => setSelectedClass(null)}>Close class</button></div><div className="detail-panel-body"><p>{course.credits} credits · {course.room || "No location entered"}</p><h3>Files and images</h3><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id } })}>Add class file</button><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id, kind: "class-image" } })}>Upload class image</button><FileList files={fileStore.files.filter((f) => f.course_id === course.id)} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} onTrashed={handleLegacyTrashed} canWrite={canWriteFiles} />{details.syllabusFileId && <button className="secondary-button" onClick={() => { const next = { ...details }; delete next.syllabusFileId; commitAcademic(courses, { courseDetails: { ...extraData.courseDetails, [course.id]: next } }); }}>Detach syllabus file</button>}<h3>Progress</h3><p>{durationLabel(studySeconds)} recorded study · {items.filter((a) => a.status === "done").length} / {items.length} assignments complete</p><p>{average ? `Grade: ${average.value.toFixed(2)} / ${average.max}` : "No matching grade entered"} · {activeTerm || "Unspecified term"}</p><button className="text-button" onClick={() => { setSelectedClass(null); setStudyOpen(true); }}>Study history & grades</button><h3>Instructor</h3><p>{course.instructor || "No instructor entered"}</p><h3>Office hours</h3><p>{details.officeHours || "No office hours entered"}</p><h3>Schedule</h3>{details.meetings.length ? details.meetings.map((m) => <p key={m.id}>{m.days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ")} · {m.start}–{m.end} · {m.location || course.room}<br />{dateLabel(m.from)} – {dateLabel(m.until)}</p>) : <p>No recurring meetings entered.</p>}<div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ course, details }); setSelectedClass(null); }}>Edit class</button><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); setSelectedClass(null); navigate("calendar"); }}>View schedule</button></div><h3>Assignments</h3>{renderAssignmentTable(items, true)}<button className="secondary-button" onClick={() => { setSelectedClass(null); setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } }); }}>Add assignment</button>{details.syllabusText && <details><summary>Saved syllabus source</summary><pre className="syllabus-source">{details.syllabusText}</pre></details>}<button className="secondary-button full remove-class-button" onClick={() => removeClass(course)}>Remove class</button></div></aside></div>;
+    return <ClassCardExpansion key={`${initialProfile.id}:${course.id}`} courseId={course.id} onClose={() => setSelectedClass(null)} suspended={!!(selectedAssignment || fileDialog || filePreview || nativeDocumentDialog || syllabusAttachment || syllabusTextCourseId || studyOpen || editor || syllabusId)}>{(close) => <>
+      {renderClassVisual(course, close)}
+      <div className="expanded-class-body">
+        <div className="expanded-class-heading"><div><h2>{course.code} · {course.name}</h2><p>{course.credits} credits · {course.room || "No location entered"}</p></div></div>
+        <div className="expanded-class-actions"><button className="primary-button" onClick={() => { setEditor({ course, details }); setSelectedClass(null); }}><Pencil size={15} />Edit class</button><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); setSelectedClass(null); navigate("calendar"); }}><CalendarDays size={15} />View schedule</button><button className="secondary-button" onClick={() => { setSelectedClass(null); setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } }); }}><Plus size={15} />Add assignment</button></div>
+        <section className="expanded-class-section expanded-class-progress"><h3>Progress</h3><p>{durationLabel(studySeconds)} recorded study · {items.filter((assignment) => assignment.status === "done").length} / {items.length} assignments complete</p><p>{average ? `Grade: ${average.value.toFixed(2)} / ${average.max}` : "No matching grade entered"} · {activeTerm || "Unspecified term"}</p><button className="text-button" onClick={() => { setSelectedClass(null); setStudyOpen(true); }}>Study history & grades <ArrowRight size={14} /></button></section>
+        <div className="expanded-class-grid">
+          <section className="expanded-class-section"><h3>Instructor</h3><p>{course.instructor || "No instructor entered"}</p><h3>Office hours</h3><p>{details.officeHours || "No office hours entered"}</p></section>
+          <section className="expanded-class-section"><h3>Schedule</h3>{details.meetings.length ? details.meetings.map((meeting) => <p key={meeting.id}>{meeting.days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ")} · {meeting.start}–{meeting.end} · {meeting.location || course.room}<br />{dateLabel(meeting.from)} – {dateLabel(meeting.until)}</p>) : <p>No recurring meetings entered.</p>}</section>
+        </div>
+        <section className="expanded-class-section"><h3>Assignments</h3>{renderAssignmentTable(items, true)}</section>
+        <section className="expanded-class-section"><h3>Files and images</h3><div className="expanded-class-actions"><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id } })}>Add class file</button><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id, kind: "class-image" } })}>Upload class image</button>{details.syllabusFileId && <button className="secondary-button" onClick={() => { const next = { ...details }; delete next.syllabusFileId; commitAcademic(courses, { courseDetails: { ...extraData.courseDetails, [course.id]: next } }); }}>Detach syllabus file</button>}</div><FileList files={fileStore.files.filter((file) => file.course_id === course.id)} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} onTrashed={handleLegacyTrashed} canWrite={canWriteFiles} /></section>
+        {details.syllabusText && <details className="expanded-class-section"><summary>Saved syllabus source</summary><pre className="syllabus-source">{details.syllabusText}</pre></details>}
+        <button className="secondary-button remove-class-button" onClick={() => removeClass(course)}>Remove class</button>
+      </div>
+    </>}</ClassCardExpansion>;
   }
 
   function renderAssignmentDetail(assignment: Assignment) {

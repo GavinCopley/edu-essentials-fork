@@ -1,0 +1,70 @@
+.class-card-expansion-backdrop {
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  background: rgba(12, 18, 30, 0.035);
+}
+
+.class-card-expansion-backdrop[data-suspended="true"] {
+  z-index: 180;
+  background: transparent;
+}
+
+.class-card-expansion-dismiss {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.class-card-expansion-dialog {
+  position: fixed;
+  z-index: 1;
+  display: flex;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--border, #e3e5ec);
+  border-radius: 24px;
+  background: var(--surface, #fff);
+  color: var(--ink, #20263b);
+  box-shadow: 0 22px 70px rgba(21, 27, 45, 0.2);
+  outline: none;
+}
+
+.class-card-expansion-preview {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.class-card-expansion-preview > * {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: inherit;
+}
+
+.class-card-expansion-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .class-card-expansion-backdrop,
+  .class-card-expansion-dialog {
+    scroll-behavior: auto;
+  }
+}

@@ -41,6 +41,8 @@ globalThis.fetch = (...args) => {
 };
 window.confirm = () => true;
 window.alert = (text) => alerts.push(text);
+window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(window.performance.now()), 0);
+window.cancelAnimationFrame = (frame) => window.clearTimeout(frame);
 // Capture downloaded values without navigating or retaining personal data.
 URL.createObjectURL = (blob) => { downloads.push(blob); return "blob:test"; };
 URL.revokeObjectURL = () => {};
@@ -515,6 +517,7 @@ async function clickIn(container, text) {
 function installWorkspaceServer(initial = savedDashboard, courses = [], profile = baseProfile) {
   const server = { dashboard: structuredClone(initial), courses, profile, revision: baseProfile.updated_at, writes: 0, reads: 0, offline: false, loseResponse: false, preservationFailure: false };
   fetcher = async (_url, init) => {
+    if (_url === "/api/ai/access") return Response.json({ eligible: false, enabled: false, mode: "synthetic" });
     if (init.method === "PUT") {
       if (server.offline) throw new Error("Offline");
       if (server.preservationFailure) {
@@ -1227,7 +1230,9 @@ test("study controls persist targets, timers, history and grades", async (t) => 
     assert.match(rootNode.querySelector(".widget-gpa").textContent, /3.50/); assert.match(rootNode.querySelector(".widget-streak").textContent, /2 days.*Longest: 2/);
     assert.match(rootNode.querySelector(".widget-exams").textContent, /Actual exam.*1 days.*Calendar exam.*2 days/);
     assert.match(rootNode.querySelector(".widget-today").textContent, /2tasks this week/); assert.equal(rootNode.querySelector(".nav-count").textContent, "1");
-    await click("Courses"); assert.match(rootNode.querySelector(".summary-strip").textContent, /1Completed this week.*25%/);
+    await click("Courses"); assert.match(rootNode.querySelector(".dashboard-focus-counts").textContent, /1 done this week/);
+    assert.equal(rootNode.querySelector(".dashboard-summary").querySelectorAll(".dashboard-focus-item").length, 2);
+    assert.ok(!rootNode.querySelector(".dashboard-focus-list").textContent.includes("Finished essay"));
     await act(async () => rootNode.querySelector(".class-card").click()); assert.match(rootNode.querySelector('[aria-label="Class details"]').textContent, /2h 00m recorded study · 1 \/ 2 assignments complete.*Grade: 3.50 \/ 4/);
   });
   await t.test("grades create, edit, change scale and delete with account reloads", async () => {
@@ -1241,6 +1246,52 @@ test("study controls persist targets, timers, history and grades", async (t) => 
     await click("Edit grades"); await edit("Grade class", "history"); await edit("Grade scale", "Custom"); await edit("Custom scale maximum", "10"); await edit("Grade value", "8"); await click("Save grade"); await click("Close study panel"); await saveAndReload(); assert.equal(server.dashboard.d.study.grades.length, 2); assert.equal(server.dashboard.d.study.grades[1].max, 10);
     await click("Edit grades"); await click("Delete grade"); await click("Close study panel"); await saveAndReload(); assert.equal(server.dashboard.d.study.grades.length, 1); assert.match(rootNode.querySelector(".gpa-widget").textContent, /Enter grades/);
   });
+});
+
+test("class cards enlarge in place with all class tools and retain nested assignment behavior", async () => {
+  reset();
+  const assignment = { id: "class-expansion-assignment", title: "Research outline", courseId: sampleCourse.id, dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Read the source material", weight: "" };
+  const details = { officeHours: "Tuesday, 2–3 PM", meetings: [], syllabusText: "Keep this saved syllabus source." };
+  installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, assignments: [assignment], courseDetails: { [sampleCourse.id]: details } } }, [sampleCourse]);
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Courses");
+    const card = rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`);
+    await act(async () => { card.focus(); card.click(); });
+    const expanded = rootNode.querySelector('[role="dialog"][aria-label="Class details"]');
+    assert.ok(expanded.querySelector(".expanded-class-body"));
+    const banner = expanded.querySelector(".expanded-class-header.class-card-visual");
+    const cardVisual = card.querySelector(".class-card-visual");
+    assert.ok(banner);
+    assert.equal(banner.style.background, cardVisual.style.background);
+    assert.equal(banner.querySelector(".course-watermark").textContent, cardVisual.querySelector(".course-watermark").textContent);
+    assert.equal(banner.querySelector(".course-pill").textContent, sampleCourse.code);
+    assert.equal(expanded.querySelector(".class-card-expansion-content").firstElementChild, banner);
+    assert.ok(expanded.querySelector(".expanded-class-heading h2").textContent.includes(sampleCourse.name));
+    assert.equal(rootNode.querySelector(".side-panel-backdrop"), null);
+    assert.equal(card.getAttribute("aria-expanded"), "true");
+    for (const label of ["Progress", "Instructor", "Office hours", "Schedule", "Assignments", "Files and images", "Saved syllabus source", "Tuesday, 2–3 PM"]) assert.ok(expanded.textContent.includes(label), label);
+    for (const label of ["Edit class", "View schedule", "Add assignment", "Add class file", "Upload class image", "Remove class"]) assert.ok([...expanded.querySelectorAll("button")].some((button) => button.textContent.trim() === label), label);
+    await act(async () => { expanded.querySelector(".assignment-row").focus(); expanded.querySelector(".assignment-row").click(); });
+    const assignmentDialog = rootNode.querySelector('[aria-label="Assignment details"]');
+    assert.ok(assignmentDialog);
+    assert.ok(assignmentDialog.contains(document.activeElement));
+    assert.equal(expanded.hasAttribute("inert"), true);
+    assert.notEqual(expanded.getAttribute("aria-modal"), "true");
+    await click("Close assignment");
+    assert.ok(rootNode.querySelector('[aria-label="Class details"]'));
+    assert.equal(expanded.hasAttribute("inert"), false);
+    assert.equal(document.activeElement, expanded.querySelector(".assignment-row"));
+    await click("Close class");
+    assert.equal(rootNode.querySelector('[aria-label="Class details"]'), null);
+    assert.equal(card.getAttribute("aria-expanded"), "false");
+    assert.equal(document.activeElement, card);
+    await act(async () => card.click());
+    await clickIn(rootNode.querySelector('[aria-label="Class details"]'), "Edit class");
+    assert.ok(rootNode.querySelector(".academic-editor"));
+    assert.equal(rootNode.querySelector('[aria-label="Class details"]'), null);
+    await click("Close editor");
+  } finally { await unmount(); }
 });
 
 test("academic forms, syllabus review and calendar save complete account snapshots", async (t) => {
@@ -1275,7 +1326,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
   });
 
   await t.test("class fields and schedule survive a failed save, retry, edit, and reload", async () => {
-    reset(); const server = installWorkspaceServer(); await render(Workspace, { initialProfile: baseProfile }); await click("Courses"); await click("Add class"); await click("Manual entry");
+    reset(); const server = installWorkspaceServer(); await render(Workspace, { initialProfile: baseProfile }); await click("Courses"); await act(async () => rootNode.querySelector(".add-class-card").click()); await click("Manual entry");
     for (const [key, value] of Object.entries({ "Course code": "BIO 42", "Class name": "Field Biology", "Credits": "4", "Instructor": "Dr. Rivers", "Location / meeting notes": "Lab 4", "Office hours": "Friday by appointment" })) await edit(key, value);
     await click("Add meeting"); await edit("First date", "2026-09-01"); await edit("Last date", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
     assert.equal(unloadBlocked(), true); await click("Save class");
