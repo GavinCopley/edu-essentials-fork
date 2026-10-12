@@ -51,6 +51,23 @@ After deployment, check:
 - `GET /api/workspace` without a session returns 401.
 - Google sign-in returns to this deployment and private pages load.
 
+## Sidebar navigation check
+
+The client build preserves entry export signatures through
+`build/client-router-build.ts`, shared by the Cloudflare and Vercel configs.
+Without that setting, the browser router's dynamic imports can resolve to a
+shared chunk that does not expose the navigation helpers they request. The
+result is repeated `RSC prefetch setup error` messages and sidebar clicks that
+leave the URL unchanged, even though direct page loads work.
+
+Run `npm run verify:navigation` to build an isolated production fixture and
+exercise the real sidebar links at desktop and mobile sizes. It uses synthetic
+account data, blocks external browser requests, and loads the real vinext
+router. It requires Playwright and Chrome; the module and executable can be
+supplied through `PLAYWRIGHT_MODULE` and `CHROME_EXECUTABLE`, as with the other
+browser verification scripts. Fixture bundles, staging files, and results stay
+under `.vinext/`; vinext also writes its build identifier to `dist/server/BUILD_ID`.
+
 ## October 12 deployment diagnosis
 
 The failing deployment of commit `0bbe8e9` ran `pnpm run build` (`vinext build`)

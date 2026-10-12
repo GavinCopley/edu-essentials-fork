@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { nitro } from "nitro/vite";
 import vinext from "vinext";
 import { defineConfig, type Plugin } from "vite";
+import { clientRouterBuildOptions } from "./build/client-router-build";
 
 const vercelRuntimeEnvShim = fileURLToPath(
   new URL("./build/vercel-runtime-env.ts", import.meta.url),
@@ -25,6 +26,9 @@ const cloudflareWorkersVercelShim: Plugin = {
 };
 
 export default defineConfig({
+  environments: {
+    client: { build: clientRouterBuildOptions },
+  },
   resolve: {
     // Nitro's aliases make Vite's CSS @import resolver miss Tailwind's style
     // export, so pin this stylesheet directly for the Vercel build.

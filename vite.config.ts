@@ -1,6 +1,7 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
+import { clientRouterBuildOptions } from "./build/client-router-build";
 import { sites } from "./build/sites-vite-plugin";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
@@ -44,6 +45,9 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    environments: {
+      client: { build: clientRouterBuildOptions },
+    },
     // Refresh browser dependency versions on startup after app changes.
     // Stale client code can otherwise hydrate against newer server markup.
     optimizeDeps: { force: true },
