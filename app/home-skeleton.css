@@ -192,6 +192,10 @@ html[data-motion="reduced"] .home-skeleton__card::after {
   animation: none;
 }
 
+.home-load-transition[data-page-entry="true"] .home-load-transition__content .home-page {
+  animation: page-in 0.22s ease-out;
+}
+
 @keyframes home-skeleton-sweep {
   0%, 25% { transform: translateX(-52%); opacity: 0; }
   38% { opacity: 1; }

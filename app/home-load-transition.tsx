@@ -37,6 +37,7 @@ export function HomeLoadTransition({
   // Freeze the first restored silhouette for this loading cycle. Server data may
   // refresh the cache while the pending shape stays in place for the fade.
   const [pendingLayout] = useState(layout);
+  const [animatePageEntry] = useState(() => ready);
   const [hasBeenPending, setHasBeenPending] = useState(() => !ready);
   const [phase, setPhase] = useState<TransitionPhase>(() => ready ? "done" : "pending");
   const shouldAnimate = ready && layoutRestored && hasBeenPending;
@@ -206,6 +207,7 @@ export function HomeLoadTransition({
     <div
       ref={rootRef}
       className="home-load-transition"
+      data-page-entry={String(animatePageEntry)}
       data-phase={phaseForRender}
       data-layout-restored={String(layoutRestored)}
       data-layout-match={String(ready && serverLayout ? layoutsMatch(pendingLayout, serverLayout) : false)}
