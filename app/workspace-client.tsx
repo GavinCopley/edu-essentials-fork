@@ -78,6 +78,7 @@ import StudyWidget, { studyWidgetTypes } from "./study-widgets";
 import ReorderableWidgetGrid from "./reorderable-widget-grid";
 import WidgetCustomization from "./widget-customization";
 import HomeLoadTransition from "./home-load-transition";
+import WorkspaceSaveStatus from "./workspace-save-status";
 import { HomeGreeting, type HomeSkeletonGreeting } from "./home-skeleton";
 import {
   cacheLayoutsMatch,
@@ -1047,7 +1048,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
 
   const workspaceError = ["load-error", "save-error", "conflict", "session-error"].includes(persistenceStatus);
   const workspacePending = persistenceStatus === "dirty" || persistenceStatus === "saving";
-  const showWorkspaceToast = !experimentalMode && (workspaceError || workspacePending || (profilePending && persistenceStatus === "saved"));
+  const homeSaveIndicator = page === "home" && saveState.ready && !experimentalMode;
+  const showWorkspaceToast = !experimentalMode && ((!homeSaveIndicator && (workspaceError || workspacePending)) || (profilePending && persistenceStatus === "saved"));
   const workspaceToastTitle = persistenceStatus === "load-error" ? "Couldn't load workspace"
     : persistenceStatus === "save-error" ? ""
       : persistenceStatus === "conflict" ? "Workspace changed elsewhere"
@@ -1061,6 +1063,14 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         : profilePending ? "Your settings changes have not been saved yet."
           : undefined;
   const workspaceToastLoading = workspacePending || (profileSaving && persistenceStatus === "saved");
+  const renderWorkspaceRecoveryActions = () => <>
+    {profilePending && page !== "settings" && (workspaceError || persistenceStatus === "saved") && persistenceStatus !== "save-error" && <button type="button" onClick={() => navigate("settings")}>Review settings</button>}
+    {workspaceError && persistenceStatus === "save-error" && <button type="button" onClick={autosave.retry}>Retry save</button>}
+    {workspaceError && persistenceStatus === "session-error" && <><a href="/login?error=session" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a><button type="button" onClick={saveState.ready ? autosave.retry : reloadWorkspace}>Retry after signing in</button></>}
+    {workspaceError && persistenceStatus === "load-error" && <button type="button" onClick={reloadWorkspace}>Retry loading</button>}
+    {workspaceError && saveState.dirty && <button type="button" onClick={downloadUnsavedWork}>Download unsaved work</button>}
+    {workspaceError && saveState.dirty && persistenceStatus !== "save-error" && <button type="button" disabled={persistenceStatus === "saving" || profileSaving} onClick={reloadWorkspace}>Reload saved workspace</button>}
+  </>;
   const widgetEditingEnabled = customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId && !syllabusAttachment && !syllabusTextCourseId && !nativeDocumentDialog;
 
   useEffect(() => {
@@ -1273,12 +1283,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
           error={workspaceError}
           loading={workspaceToastLoading}
         >
-          {profilePending && page !== "settings" && (workspaceError || persistenceStatus === "saved") && persistenceStatus !== "save-error" && <button type="button" onClick={() => navigate("settings")}>Review settings</button>}
-          {workspaceError && persistenceStatus === "save-error" && <button type="button" onClick={autosave.retry}>Retry save</button>}
-          {workspaceError && persistenceStatus === "session-error" && <><a href="/login?error=session" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a><button type="button" onClick={saveState.ready ? autosave.retry : reloadWorkspace}>Retry after signing in</button></>}
-          {workspaceError && persistenceStatus === "load-error" && <button type="button" onClick={reloadWorkspace}>Retry loading</button>}
-          {workspaceError && saveState.dirty && <button type="button" onClick={downloadUnsavedWork}>Download unsaved work</button>}
-          {workspaceError && saveState.dirty && persistenceStatus !== "save-error" && <button type="button" disabled={persistenceStatus === "saving" || profileSaving} onClick={reloadWorkspace}>Reload saved workspace</button>}
+          {renderWorkspaceRecoveryActions()}
         </SaveToast>
         <SaveToast
           active={!experimentalMode && (Boolean(fileStore.error) || fileStore.busy)}
@@ -1302,7 +1307,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
           <button type="button" disabled={fileActivity.retrying || !!experimentalMode || profilePending || !saveState.ready} onClick={() => void fileActivity.retry()}>{fileActivity.failure?.acknowledged ? "Retry Recent refresh" : "Retry Recent update"}</button>
           <button type="button" disabled={fileActivity.retrying} onClick={fileActivity.dismiss}>Dismiss Recent notification</button>
         </SaveToast>
-        {!experimentalMode && persistenceStatus === "saved" && !profilePending && <span className="sr-only" role="status">Workspace saved</span>}
+        {!experimentalMode && persistenceStatus === "saved" && !profilePending && !homeSaveIndicator && <span className="sr-only" role="status">Workspace saved</span>}
         {toast && <div className="toast" role="status"><CheckCircle2 size={17} /> {toast}</div>}
       </div>
     </div>
@@ -1485,6 +1490,12 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
               <button className="add-tab" disabled={workspaces.length >= MAX_WORKSPACES} title={`Up to ${MAX_WORKSPACES} workspaces`} onClick={() => { setWorkspaceNameDraft(""); setWorkspaceDialog("new"); }} aria-label="Add workspace">More <ChevronDown size={14} /></button>
             </div>
             <div className="workspace-actions">
+              {saveState.ready && !experimentalMode && <WorkspaceSaveStatus
+                status={persistenceStatus}
+                message={saveState.message}
+                popupMessage={workspaceError ? saveState.message || "Something went wrong while saving your workspace." : workspacePending ? (persistenceStatus === "saving" ? "Saving workspace…" : "Workspace changes are waiting to save.") : ""}
+                actions={renderWorkspaceRecoveryActions()}
+              />}
               <button className="secondary-button widget-customization-trigger" aria-haspopup="dialog" onClick={() => setAppearanceOpen(true)}><SlidersHorizontal size={17} /> Widget customization</button>
               <button ref={customizeButtonRef} className="secondary-button" aria-pressed={customizing} onClick={() => setCustomizing((value) => !value)}><LayoutGrid size={17} />{customizing ? "Done customizing" : "Customize"}</button>
               <button className="secondary-button add-widget-control" onClick={() => setWidgetPickerOpen(true)}><Plus size={16} /> Add widget</button>

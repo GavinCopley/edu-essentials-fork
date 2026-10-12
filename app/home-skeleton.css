@@ -96,6 +96,7 @@
   background: #0d1b30;
 }
 
+.home-skeleton__action[data-control="save-status"] { width: calc(44 * var(--ui-unit, 1px)); }
 .home-skeleton__action[data-control="widget-customization"] { width: calc(190 * var(--ui-unit, 1px)); }
 .home-skeleton__action[data-control="add-widget"] { width: calc(128 * var(--ui-unit, 1px)); }
 

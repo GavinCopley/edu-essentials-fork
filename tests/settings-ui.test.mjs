@@ -120,7 +120,24 @@ async function waitForWorkspaceSave(server, writesBefore = server.writes) {
   assert.equal(server.writes, writesBefore + 1, "one debounced edit writes one workspace revision");
 }
 async function waitForWorkspaceError(message) {
-  await waitUntil(() => rootNode.textContent.includes(message), `workspace save error: ${message}`);
+  await waitUntil(() => rootNode.textContent.includes(message) || workspaceSaveStatusTrigger()?.dataset.saveState === "error", `workspace save error: ${message}`);
+  const trigger = workspaceSaveStatusTrigger();
+  if (trigger?.dataset.saveState === "error") {
+    const dialog = await openWorkspaceSaveError();
+    assert.ok(dialog.textContent.includes(message), `the toolbar details preserve the expected workspace error: ${message}`);
+  } else {
+    assert.ok(rootNode.textContent.includes(message), `the fallback workspace status preserves the expected error: ${message}`);
+  }
+}
+function workspaceSaveStatusTrigger() { return rootNode.querySelector(".workspace-save-status-trigger"); }
+function workspaceSaveErrorDialog() { return rootNode.querySelector('[role="dialog"][aria-labelledby="workspace-save-error-title"]'); }
+async function openWorkspaceSaveError() {
+  const trigger = workspaceSaveStatusTrigger();
+  assert.ok(trigger, "Home exposes workspace save recovery in its toolbar");
+  if (!workspaceSaveErrorDialog()) await act(async () => trigger.click());
+  const dialog = workspaceSaveErrorDialog();
+  assert.ok(dialog, "the save status opens its recovery details");
+  return dialog;
 }
 function field(label) {
   const scope = rootNode.querySelector(".academic-editor") ?? rootNode;
@@ -149,7 +166,11 @@ async function edit(label, value) {
   });
 }
 async function click(text) {
-  const control = [...rootNode.querySelectorAll("button,a")].find((node) => node.textContent.trim() === text);
+  let control = [...rootNode.querySelectorAll("button,a")].find((node) => node.textContent.trim() === text);
+  if (!control && ["Retry save", "Retry after signing in", "Download unsaved work", "Reload saved workspace", "Retry loading"].includes(text) && workspaceSaveStatusTrigger()?.dataset.saveState === "error") {
+    const dialog = await openWorkspaceSaveError();
+    control = [...dialog.querySelectorAll("button,a")].find((node) => node.textContent.trim() === text);
+  }
   assert.ok(control, `Missing control ${text}`);
   await act(async () => {
     if (control.tagName === "A") control.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
@@ -453,23 +474,33 @@ test("settings UI saves, preserves drafts, and recovers without losing account e
       return Response.json({ initialized: true, courses: [], dashboard, revision, profile: baseProfile });
     };
     await render(Workspace, { initialProfile: baseProfile }); await editNotes("First saved edit");
-    assert.equal(unloadBlocked(), true); assert.match(rootNode.textContent, /Saving workspace/);
+    assert.equal(unloadBlocked(), true);
+    assert.equal(workspaceSaveStatusTrigger()?.dataset.saveState, "saving");
+    assert.equal(workspaceSaveStatusTrigger()?.getAttribute("aria-label"), "Saving workspace");
     await waitForWorkspaceError("Response lost");
-    const saveErrorToast = rootNode.querySelector(".save-toast-card");
-    assert.equal(saveErrorToast.querySelector(".save-toast-details").textContent, "Response lost after commit");
-    assert.deepEqual([...saveErrorToast.querySelectorAll("button, a")].map((control) => control.textContent.trim()), ["Retry save", "Download unsaved work"]);
-    assert.equal([...saveErrorToast.querySelectorAll("button, a")].some((control) => control.textContent.trim() === "Reload saved workspace"), false);
+    assert.equal(workspaceSaveStatusTrigger()?.dataset.saveState, "error");
+    const saveErrorDetails = await openWorkspaceSaveError();
+    assert.match(saveErrorDetails.textContent, /Response lost after commit/);
+    assert.deepEqual([...saveErrorDetails.querySelectorAll("button, a")].map((control) => control.textContent.trim()), ["Retry save", "Download unsaved work"]);
+    assert.equal([...saveErrorDetails.querySelectorAll("button, a")].some((control) => control.textContent.trim() === "Reload saved workspace"), false);
     assert.equal(rootNode.querySelector("textarea").value, "First saved edit");
     await click("Retry save"); await waitUntil(() => !unloadBlocked(), "retry workspace save");
     assert.equal(puts, 2); assert.equal(unloadBlocked(), false);
     // A second session now changes the server before this tab's next save.
     dashboard = { ...dashboard, t: ["Other tab"] }; revision = "2026-09-06T00:00:03Z";
     await editNotes("Keep this draft"); await waitForWorkspaceError("Another session saved different changes");
-    assert.match(rootNode.textContent, /Another session saved different changes/);
     assert.equal(rootNode.querySelector("textarea").value, "Keep this draft"); assert.equal(unloadBlocked(), true);
-    const conflictToast = rootNode.querySelector(".save-toast-card");
-    assert.deepEqual([...conflictToast.querySelectorAll("button, a")].map((control) => control.textContent.trim()), ["Download unsaved work", "Reload saved workspace"]);
-    assert.equal([...conflictToast.querySelectorAll("button, a")].some((control) => control.textContent.trim() === "Retry save"), false);
+    const conflictDetails = await openWorkspaceSaveError();
+    assert.match(conflictDetails.textContent, /Another session saved different changes/);
+    assert.deepEqual([...conflictDetails.querySelectorAll("button, a")].map((control) => control.textContent.trim()), ["Download unsaved work", "Reload saved workspace"]);
+    assert.equal([...conflictDetails.querySelectorAll("button, a")].some((control) => control.textContent.trim() === "Retry save"), false);
+    await click("Settings");
+    const nonHomeConflictToast = rootNode.querySelector(".save-toast-card");
+    assert.ok(nonHomeConflictToast, "non-Home pages retain the workspace error fallback");
+    assert.match(nonHomeConflictToast.textContent, /Another session saved different changes/);
+    assert.deepEqual([...nonHomeConflictToast.querySelectorAll("button, a")].map((control) => control.textContent.trim()), ["Download unsaved work", "Reload saved workspace"]);
+    await click("Home");
+    await waitUntil(() => window.location.pathname === "/home" && workspaceSaveStatusTrigger()?.dataset.saveState === "error", "return to the Home toolbar conflict status");
     await click("Download unsaved work"); assert.equal(JSON.parse(await downloads[0].text()).workspaces[0].widgets[0].note, "Keep this draft");
     window.confirm = () => false; await click("Reload saved workspace"); assert.equal(rootNode.querySelector("textarea").value, "Keep this draft");
     window.confirm = () => true; await click("Reload saved workspace"); assert.equal(rootNode.querySelector("textarea").value, "Other tab");
@@ -495,10 +526,10 @@ test("settings UI saves, preserves drafts, and recovers without losing account e
     assert.match(settingsDraftToast.textContent, /Settings have unsaved changes/);
     assert.ok([...settingsDraftToast.querySelectorAll("button, a")].some((control) => control.textContent.trim() === "Review settings"));
     await editNotes("Workspace draft while settings remain pending");
-    const workspacePendingToast = rootNode.querySelector(".save-toast-card");
-    assert.match(workspacePendingToast.textContent, /Saving workspace/);
-    assert.doesNotMatch(workspacePendingToast.textContent, /Settings have unsaved changes/);
-    assert.equal(workspacePendingToast.querySelectorAll("button, a").length, 0, "a pending workspace save exposes no settings or recovery actions");
+    assert.equal(workspaceSaveStatusTrigger()?.dataset.saveState, "saving");
+    assert.equal(workspaceSaveStatusTrigger()?.getAttribute("aria-label"), "Saving workspace");
+    await waitUntil(() => !rootNode.querySelector(".toast-stack .save-toast-card"), "profile-only toast exit while the workspace saves", 1500);
+    assert.equal(Boolean(rootNode.querySelector(".toast-stack .save-toast-card")), false, "Home represents the workspace write in its toolbar instead of a duplicate toast");
     await click("Settings"); assert.equal(window.location.pathname, "/settings");
     assert.equal(field("Major").value, "Kept while navigating"); assert.equal(unloadBlocked(), true);
     assert.equal([...rootNode.querySelectorAll("button")].find((b) => b.textContent === "Sign out").disabled, true);
@@ -886,7 +917,7 @@ test("Trash confirmations retain exact requests through workspace navigation and
   } finally { window.requestAnimationFrame = previousFrame; filesFetcher = undefined; if (root) await unmount(); }
 });
 
-test("workspace autosave shows one action-free pending status while the debounced write is held", async (t) => {
+test("workspace autosave shows one persistent action-free toolbar status while the debounced write is held", async (t) => {
   t.after(async () => { if (root) await unmount(); });
   reset(); const server = installWorkspaceServer();
   const saveImmediately = fetcher;
@@ -901,23 +932,25 @@ test("workspace autosave shows one action-free pending status while the debounce
   await render(Workspace, { initialProfile: baseProfile });
   await editNotes("A change that is saved automatically");
 
-  const toast = rootNode.querySelector(".save-toast-card");
-  assert.ok(toast, "a pending autosave has a visible status card");
-  assert.equal(toast.getAttribute("role"), "status");
-  assert.equal(toast.getAttribute("aria-busy"), "true");
-  assert.match(toast.textContent, /Saving workspace/);
-  assert.ok(toast.querySelector(".save-toast-spinner"), "the pending save shows its spinner");
+  const status = workspaceSaveStatusTrigger();
+  assert.ok(status, "a pending autosave has a visible toolbar status");
+  assert.equal(status.dataset.saveState, "saving");
+  assert.equal(status.getAttribute("aria-label"), "Saving workspace");
+  assert.equal(rootNode.querySelector(".toast-stack .save-toast-card"), null, "Home has no duplicate workspace status toast");
   for (const label of ["Save now", "Download unsaved work", "Reload saved workspace"]) {
-    assert.equal([...toast.querySelectorAll("button, a")].some((control) => control.textContent.trim() === label), false, `${label} is absent during normal autosave`);
+    assert.equal([...rootNode.querySelectorAll(".workspace-save-status button, .workspace-save-status a")].some((control) => control.textContent.trim() === label), false, `${label} is absent during normal autosave`);
   }
 
   await waitUntil(() => writesRequested === 1, "debounced workspace write");
-  assert.match(rootNode.querySelector(".save-toast-card").textContent, /Saving workspace/);
-  assert.equal(rootNode.querySelector(".save-toast-card").querySelectorAll("button, a").length, 0, "a pending write still has no recovery controls");
+  assert.equal(workspaceSaveStatusTrigger(), status, "the toolbar status remains mounted while the write is pending");
+  assert.equal(status.dataset.saveState, "saving");
+  assert.equal(rootNode.querySelector(".toast-stack .save-toast-card"), null, "a pending Home write never duplicates the toolbar status");
   await act(async () => finishWrite());
   await waitForWorkspaceSave(server, 0);
   assert.equal(server.writes, 1);
-  await waitUntil(() => !rootNode.querySelector(".save-toast-card"), "saved status card exit", 2000);
+  await waitUntil(() => status.dataset.saveState === "saved", "persistent saved toolbar status");
+  assert.equal(status.getAttribute("aria-label"), "Workspace saved");
+  assert.equal(rootNode.querySelector(".toast-stack .save-toast-card"), null, "the completed Home save remains represented in the toolbar");
 });
 
 test("sidebar collapse keeps accessible navigation, persists locally and does not save account data", async () => {

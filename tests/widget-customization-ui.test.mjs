@@ -4,7 +4,11 @@ import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
 
 const dom = new JSDOM('<div id="root"></div>', { url: "https://edu.example/" });
-for (const name of ["window", "document", "Element", "HTMLElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent", "KeyboardEvent"]) globalThis[name] = dom.window[name];
+class TestAnimationEvent extends dom.window.Event {
+  constructor(type, { animationName = "", ...options } = {}) { super(type, options); this.animationName = animationName; }
+}
+Object.defineProperty(dom.window, "AnimationEvent", { configurable: true, value: TestAnimationEvent });
+for (const name of ["window", "document", "Element", "HTMLElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent", "KeyboardEvent", "AnimationEvent"]) globalThis[name] = dom.window[name];
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom has no layout engine. Model visible controls through offsetParent so the
@@ -62,6 +66,8 @@ globalThis.fetch = (...args) => String(args[0]).startsWith("/api/files")
 window.confirm = () => true;
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 window.scrollTo = () => {};
+window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(window.performance.now()), 0);
+window.cancelAnimationFrame = (frame) => window.clearTimeout(frame);
 
 function reset({ preserveServer = false } = {}) {
   window.history.replaceState({}, "", "/home");
@@ -135,6 +141,30 @@ async function edit(label, value, scope = rootNode) {
     }
   });
 }
+async function editNotes(value) {
+  const textarea = rootNode.querySelector('textarea[aria-label="Quick notes"]');
+  assert.ok(textarea, "the Home workspace note is available");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value").set.call(textarea, value);
+    textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+}
+function saveStatusTrigger() { return rootNode.querySelector(".workspace-save-status-trigger"); }
+function workspaceSaveErrorDialog() { return rootNode.querySelector('[role="dialog"][aria-labelledby="workspace-save-error-title"]'); }
+function savePopupAnimationEnd(animationName = "widget-menu-dismiss") {
+  return new window.AnimationEvent("animationend", { bubbles: true, animationName });
+}
+async function finishWorkspaceSavePopup(dialog, animationName) {
+  await act(async () => dialog.dispatchEvent(savePopupAnimationEnd(animationName)));
+}
+async function openWorkspaceSaveError() {
+  const trigger = saveStatusTrigger();
+  assert.ok(trigger, "the Home toolbar exposes workspace save status");
+  if (!workspaceSaveErrorDialog()) await act(async () => trigger.click());
+  const dialog = workspaceSaveErrorDialog();
+  assert.ok(dialog, "the error status opens its recovery details");
+  return dialog;
+}
 async function waitForAutosave() {
   if (unloadBlocked()) await waitUntil(() => !unloadBlocked(), "workspace autosave");
   assert.equal(unloadBlocked(), false, "workspace autosave finishes before reload");
@@ -172,9 +202,12 @@ test("widget appearance opens from the workspace toolbar and exposes its complet
   reset(); installServer(); await render(Workspace, { initialProfile: baseProfile });
 
   const actions = rootNode.querySelector(".workspace-actions");
-  assert.equal(actions.querySelectorAll("button")[0].classList.contains("widget-customization-trigger"), true);
-  assert.equal(actions.querySelectorAll("button")[1].textContent.trim(), "Customize");
-  await act(async () => { actions.querySelector(".widget-customization-trigger").focus(); actions.querySelector(".widget-customization-trigger").click(); });
+  const customizationTrigger = actions.querySelector(".widget-customization-trigger");
+  assert.ok(customizationTrigger, "widget customization remains in the workspace toolbar");
+  const toolbarButtons = [...actions.querySelectorAll("button")];
+  assert.ok(toolbarButtons.indexOf(saveStatusTrigger()) < toolbarButtons.indexOf(customizationTrigger), "the status control is before Widget customization");
+  assert.ok(toolbarButtons.indexOf(customizationTrigger) < toolbarButtons.findIndex((button) => button.textContent.trim() === "Customize"), "Widget customization remains before the layout Customize action");
+  await act(async () => { customizationTrigger.focus(); customizationTrigger.click(); });
   const dialog = appearanceDialog();
   assert.ok(dialog, "toolbar action should open the appearance dialog");
   assert.equal(document.activeElement.id, "wa-tab-basic", "initial keyboard focus enters the studio");
@@ -216,10 +249,219 @@ test("widget appearance opens from the workspace toolbar and exposes its complet
 
   await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
   assert.equal(appearanceDialog(), null, "Escape closes the studio");
-  assert.equal(document.activeElement, actions.querySelector(".widget-customization-trigger"), "focus returns to the toolbar action");
+  assert.equal(document.activeElement, customizationTrigger, "focus returns to the toolbar action");
   await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true })));
   assert.equal(document.activeElement, rootNode.querySelector('[aria-label="Search assignments, classes, and files"]'), "Ctrl+K focuses workspace search after the studio closes");
   assert.equal(server.writes, 0);
+});
+
+test("Home toolbar save status stays visible through the debounced write without a duplicate toast", async (t) => {
+  t.after(async () => { if (root) await unmount(); });
+  reset(); const server = installServer();
+  const actualFetcher = fetcher;
+  let writesRequested = 0, finishWrite;
+  fetcher = async (url, init = {}) => {
+    if (init.method === "PUT") {
+      writesRequested++;
+      await new Promise((resolve) => { finishWrite = resolve; });
+    }
+    return actualFetcher(url, init);
+  };
+  await render(Workspace, { initialProfile: baseProfile });
+
+  const actions = rootNode.querySelector(".workspace-actions");
+  const trigger = saveStatusTrigger();
+  assert.ok(trigger, "a persistent save control is present in the Home toolbar");
+  assert.equal(trigger.dataset.saveState, "saved");
+  assert.equal(trigger.getAttribute("aria-label"), "Workspace saved");
+  assert.ok([...actions.querySelectorAll("button")].indexOf(trigger) < [...actions.querySelectorAll("button")].indexOf(actions.querySelector(".widget-customization-trigger")), "save status appears before Widget customization");
+  assert.equal(rootNode.querySelector(".toast-stack .save-toast-card"), null, "saved workspace status does not use a bottom-right toast");
+
+  await editNotes("A change that remains visible while saving");
+  assert.equal(unloadBlocked(), true, "the edit is dirty before the debounce starts the write");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 150)));
+  assert.equal(writesRequested, 0, "the Home status update preserves the autosave debounce");
+  assert.equal(trigger.dataset.saveState, "saving");
+  await waitUntil(() => writesRequested === 1, "debounced workspace write");
+  assert.equal(saveStatusTrigger(), trigger, "the same toolbar control remains mounted during the write");
+  assert.equal(trigger.getAttribute("aria-label"), "Saving workspace");
+  assert.equal(rootNode.querySelector(".toast-stack .save-toast-card"), null, "Home does not duplicate its toolbar status with a save toast");
+
+  await act(async () => finishWrite());
+  await waitUntil(() => trigger.dataset.saveState === "saved" && !unloadBlocked(), "saved toolbar state");
+  assert.equal(trigger.getAttribute("aria-label"), "Workspace saved");
+  assert.equal(server.writes, 1);
+  assert.equal(decodeWorkspaceState(server.dashboard).workspaces[0].widgets.find((widget) => widget.instanceId === "notes").note, "A change that remains visible while saving");
+  assert.equal(rootNode.querySelector(".toast-stack .save-toast-card"), null, "successful save leaves the persistent status in the toolbar");
+});
+
+test("save error details keep the latest draft and recover through the toolbar popup", async (t) => {
+  t.after(async () => { if (root) await unmount(); });
+  reset(); const server = installServer();
+  const actualFetcher = fetcher;
+  let allowSave = false, attempts = 0;
+  fetcher = async (url, init = {}) => {
+    if (init.method === "PUT") {
+      attempts++;
+      if (!allowSave) return Response.json({ error: "Offline for the save-status test" }, { status: 503 });
+    }
+    return actualFetcher(url, init);
+  };
+  await render(Workspace, { initialProfile: baseProfile });
+  await editNotes("First retained edit");
+  await waitUntil(() => saveStatusTrigger()?.dataset.saveState === "error", "save error in the toolbar");
+  assert.equal(unloadBlocked(), true, "a failed save keeps unsaved work protected from reload");
+  assert.equal(rootNode.querySelector("textarea[aria-label=\"Quick notes\"]").value, "First retained edit");
+  assert.equal(rootNode.querySelector(".toast-stack .save-toast-card"), null, "Home errors are announced from the toolbar status");
+
+  const trigger = saveStatusTrigger();
+  trigger.focus();
+  const dialog = await openWorkspaceSaveError();
+  assert.equal(trigger.getAttribute("aria-label"), "Unable to save workspace");
+  assert.equal(dialog.getAttribute("aria-labelledby"), "workspace-save-error-title");
+  assert.equal(dialog.getAttribute("aria-modal"), null, "the anchored recovery popup is nonmodal");
+  assert.match(dialog.textContent, /Offline for the save-status test/);
+  assert.deepEqual([...dialog.querySelectorAll("button, a")].map((control) => control.textContent.trim()), ["Retry save", "Download unsaved work"]);
+  await waitUntil(() => document.activeElement === dialog.querySelector("button, a"), "focus enters the recovery popup");
+  assert.equal(rootNode.querySelector("textarea[aria-label=\"Quick notes\"]").value, "First retained edit");
+
+  await editNotes("Latest edit kept for retry");
+  assert.equal(saveStatusTrigger().dataset.saveState, "error", "editing after failure preserves the recovery state");
+  assert.equal(rootNode.querySelector("textarea[aria-label=\"Quick notes\"]").value, "Latest edit kept for retry");
+  allowSave = true;
+  await click("Retry save", dialog);
+  await waitUntil(() => saveStatusTrigger()?.dataset.saveState === "saved" && !unloadBlocked(), "retry of latest workspace draft");
+  assert.match(rootNode.querySelector(".workspace-save-status [role=\"status\"]").textContent, /Workspace saved/);
+  assert.equal(attempts, 2, "retry performs exactly one additional write");
+  assert.equal(server.writes, 1);
+  assert.equal(decodeWorkspaceState(server.dashboard).workspaces[0].widgets.find((widget) => widget.instanceId === "notes").note, "Latest edit kept for retry");
+});
+
+test("session errors retain the draft and expose sign-in recovery in the toolbar popup", async (t) => {
+  t.after(async () => { if (root) await unmount(); });
+  reset(); const server = installServer();
+  const actualFetcher = fetcher;
+  let signedIn = false, attempts = 0;
+  fetcher = async (url, init = {}) => {
+    if (init.method === "PUT") {
+      attempts++;
+      if (!signedIn) return Response.json({}, { status: 401 });
+    }
+    return actualFetcher(url, init);
+  };
+  await render(Workspace, { initialProfile: baseProfile });
+  await editNotes("Draft retained after session expiry");
+  await waitUntil(() => saveStatusTrigger()?.dataset.saveState === "error", "session error in the toolbar");
+  assert.equal(saveStatusTrigger().getAttribute("aria-label"), "Unable to save workspace");
+  assert.equal(unloadBlocked(), true);
+  const dialog = await openWorkspaceSaveError();
+  assert.match(dialog.textContent, /Your session ended or the account changed/);
+  const signIn = [...dialog.querySelectorAll("a")].find((link) => link.textContent.trim() === "Sign in in a new tab");
+  assert.ok(signIn, "session recovery offers sign-in in a separate tab");
+  assert.equal(signIn.getAttribute("href"), "/login?error=session");
+  assert.equal(signIn.getAttribute("target"), "_blank");
+  assert.ok([...dialog.querySelectorAll("button")].some((button) => button.textContent.trim() === "Retry after signing in"));
+  assert.equal(rootNode.querySelector("textarea[aria-label=\"Quick notes\"]").value, "Draft retained after session expiry");
+
+  signedIn = true;
+  await click("Retry after signing in", dialog);
+  await waitUntil(() => saveStatusTrigger()?.dataset.saveState === "saved" && !unloadBlocked(), "session retry success");
+  assert.match(rootNode.querySelector(".workspace-save-status [role=\"status\"]").textContent, /Workspace saved/);
+  assert.equal(attempts, 2);
+  assert.equal(server.writes, 1);
+  assert.equal(decodeWorkspaceState(server.dashboard).workspaces[0].widgets.find((widget) => widget.instanceId === "notes").note, "Draft retained after session expiry");
+});
+
+test("workspace save popup closes on Escape and outside interaction with expected focus handling", async (t) => {
+  t.after(async () => { if (root) await unmount(); });
+  reset(); installServer();
+  const successfulFetcher = fetcher;
+  fetcher = async (url, init = {}) => init.method === "PUT"
+    ? Response.json({ error: "Temporary save failure" }, { status: 503 })
+    : successfulFetcher(url, init);
+  await render(Workspace, { initialProfile: baseProfile });
+  await editNotes("Keep this draft");
+  await waitUntil(() => saveStatusTrigger()?.dataset.saveState === "error", "save error before opening details");
+
+  const trigger = saveStatusTrigger();
+  trigger.focus();
+  let dialog = await openWorkspaceSaveError();
+  assert.equal(dialog.classList.contains("is-opening"), true, "opening uses the shared pop-in animation state");
+  await waitUntil(() => document.activeElement === dialog.querySelector("button, a"), "popup initial focus");
+  await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  assert.equal(workspaceSaveErrorDialog(), dialog, "Escape keeps the popup mounted while its dismissal animation runs");
+  assert.equal(dialog.classList.contains("is-closing"), true);
+  assert.equal(dialog.getAttribute("aria-hidden"), "true", "the closing popup is hidden from assistive technology");
+  assert.equal(dialog.hasAttribute("inert"), true, "the closing popup cannot receive interaction");
+  assert.equal(trigger.getAttribute("aria-expanded"), "false");
+  await waitUntil(() => document.activeElement === trigger, "focus returns to save-status trigger after Escape");
+  await act(async () => dialog.querySelector("p").dispatchEvent(savePopupAnimationEnd()));
+  assert.equal(workspaceSaveErrorDialog(), dialog, "a child animation does not finish the popup dismissal");
+  await finishWorkspaceSavePopup(dialog, "other-animation");
+  assert.equal(workspaceSaveErrorDialog(), dialog, "an unrelated animation does not finish the popup dismissal");
+  await finishWorkspaceSavePopup(dialog);
+  assert.equal(workspaceSaveErrorDialog(), null, "the popup unmounts after its own dismissal animation");
+
+  dialog = await openWorkspaceSaveError();
+  const outside = rootNode.querySelector('.workspace-tabs [role="tab"]');
+  await act(async () => {
+    outside.focus();
+    outside.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+    outside.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    outside.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  assert.equal(workspaceSaveErrorDialog(), dialog, "an outside interaction retains the popup for its exit fade");
+  assert.equal(dialog.classList.contains("is-closing"), true);
+  assert.equal(dialog.getAttribute("aria-hidden"), "true");
+  assert.equal(dialog.hasAttribute("inert"), true);
+  assert.equal(document.activeElement, outside, "outside dismissal does not steal focus from its target");
+  assert.equal(rootNode.querySelector("textarea[aria-label=\"Quick notes\"]").value, "Keep this draft");
+  await finishWorkspaceSavePopup(dialog);
+  assert.equal(workspaceSaveErrorDialog(), null, "outside dismissal unmounts after the popup exit fade");
+});
+
+test("workspace save popup reopening cancels dismissal fallback and reduced motion closes immediately", async (t) => {
+  t.after(async () => { if (root) await unmount(); });
+  reset(); installServer();
+  const successfulFetcher = fetcher;
+  fetcher = async (url, init = {}) => init.method === "PUT"
+    ? Response.json({ error: "Temporary save failure" }, { status: 503 })
+    : successfulFetcher(url, init);
+  const previousMatchMedia = window.matchMedia;
+  const previousMotion = document.documentElement.getAttribute("data-motion");
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await editNotes("Keep this draft");
+    await waitUntil(() => saveStatusTrigger()?.dataset.saveState === "error", "save error before animation lifecycle checks");
+
+    const trigger = saveStatusTrigger();
+    let dialog = await openWorkspaceSaveError();
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    assert.equal(dialog.classList.contains("is-closing"), true, "Escape begins the fade");
+    await act(async () => trigger.click());
+    assert.equal(workspaceSaveErrorDialog(), dialog, "the trigger reopens the mounted popup during its fade");
+    assert.equal(dialog.classList.contains("is-closing"), false);
+    assert.equal(dialog.classList.contains("is-opening"), true);
+    assert.equal(dialog.hasAttribute("inert"), false);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 170)));
+    assert.equal(workspaceSaveErrorDialog(), dialog, "the canceled dismissal timeout does not close the reopened popup");
+
+    const outside = rootNode.querySelector('.workspace-tabs [role="tab"]');
+    await act(async () => outside.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+    assert.equal(dialog.classList.contains("is-closing"), true, "outside dismissal starts a new fade after reopening");
+    await waitUntil(() => workspaceSaveErrorDialog() === null, "popup fallback dismissal", 1000);
+
+    window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
+    document.documentElement.dataset.motion = "reduced";
+    dialog = await openWorkspaceSaveError();
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    assert.equal(workspaceSaveErrorDialog(), null, "reduced motion closes the popup immediately");
+    assert.equal(document.activeElement, trigger, "immediate Escape dismissal restores trigger focus");
+  } finally {
+    window.matchMedia = previousMatchMedia;
+    if (previousMotion === null) delete document.documentElement.dataset.motion;
+    else document.documentElement.setAttribute("data-motion", previousMotion);
+  }
 });
 
 test("appearance drafts preview without writing, cancel discards, and Apply saves through reload", async () => {
@@ -247,10 +489,11 @@ test("appearance drafts preview without writing, cancel discards, and Apply save
   await click("Apply appearance", appearanceDialog());
   assert.equal(appearanceDialog(), null, "Apply closes the dialog after accepting the draft");
   assert.equal(server.writes, 0, "Apply enters the ordinary workspace autosave flow");
-  const saveToast = rootNode.querySelector(".save-toast-card");
-  assert.ok(saveToast, "the debounced workspace save is announced");
-  assert.match(saveToast.textContent, /Saving workspace/);
-  assert.equal(saveToast.querySelectorAll("button, a").length, 0, "ordinary saving exposes no recovery controls");
+  const saveStatus = saveStatusTrigger();
+  assert.ok(saveStatus, "the toolbar keeps the workspace save status visible");
+  assert.equal(saveStatus.dataset.saveState, "saving", "the applied appearance enters the normal autosave state");
+  assert.equal(saveStatus.getAttribute("aria-label"), "Saving workspace");
+  assert.equal(rootNode.querySelector(".toast-stack .save-toast-card"), null, "ordinary Home saving has no duplicate toast");
   await saveAndReload();
 
   assert.equal(server.writes, 1);
@@ -437,6 +680,8 @@ test("appearance applies in experimental mode only to the preview and never writ
   await edit("Accent color", "#b12fc1", appearanceDialog());
   await click("Apply appearance", appearanceDialog());
   assert.match(rootNode.textContent, /Appearance preview updated — nothing saved to your account/);
+  assert.notEqual(saveStatusTrigger()?.getAttribute("aria-label"), "Workspace saved", "experimental data never makes a persisted-save claim");
+  assert.notEqual(saveStatusTrigger()?.dataset.saveState, "saved");
   assert.equal(server.writes, 0);
   assert.equal(appearanceDialog(), null);
 });

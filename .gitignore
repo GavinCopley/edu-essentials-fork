@@ -11,6 +11,8 @@ node_modules/
 .next/
 .vinext/
 .wrangler/
+.output/
+.vercel/
 dist/
 *.tsbuildinfo
 .ai-evals/

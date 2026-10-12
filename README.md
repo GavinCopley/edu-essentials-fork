@@ -2,6 +2,12 @@
 
 A student workspace built with React, Vinext, Cloudflare Workers, and Supabase.
 
+## Design standard
+
+Use the [Home and sidebar design standard](docs/design-system.md) for future
+features and pages. It includes visual references, design tokens, responsive
+layout rules, component patterns, and an implementation acceptance checklist.
+
 ## Academic AI pilot
 
 See [ACADEMIC_AI.md](ACADEMIC_AI.md) for the implemented assistant, model selection,
