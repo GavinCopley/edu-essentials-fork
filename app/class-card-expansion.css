@@ -62,6 +62,16 @@
   overflow: hidden;
 }
 
+.class-card-expansion-dialog[data-closing="true"] .expanded-class-header > button {
+  animation: class-card-expansion-close-fade 100ms ease-out both;
+  pointer-events: none;
+}
+
+@keyframes class-card-expansion-close-fade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .class-card-expansion-backdrop,
   .class-card-expansion-dialog {

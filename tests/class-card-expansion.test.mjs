@@ -22,6 +22,7 @@ let sourceRect = { left: 30, top: 600, width: 260, height: 200 };
 let triggerRect = { left: 100, top: 450, width: 120, height: 44 };
 let dialogRectOverride = null;
 let mobileNavRect = null;
+let sidebarRect = null;
 let calls = [];
 let cancelledEvents = [];
 
@@ -35,7 +36,7 @@ function sourceMarkup(courseId = "course[1]", withSource = true) {
   const source = withSource
     ? `<button id="course-source" data-course-card-id="${courseId}" aria-hidden="false" style="visibility: visible !important"><span id="source-label" tabindex="0" contenteditable="true">Course visual</span></button>`
     : "";
-  document.body.innerHTML = `<main class="reference-ui">${source}<button id="entry-trigger">Open class</button><div class="mobile-bottom-nav"></div><div id="app-root"></div></main>`;
+  document.body.innerHTML = `<main class="reference-ui"><aside id="workspace-sidebar" class="sidebar"></aside>${source}<button id="entry-trigger">Open class</button><div class="mobile-bottom-nav"></div><div id="app-root"></div></main>`;
   const trigger = document.getElementById("entry-trigger");
   const root = createRoot(document.getElementById("app-root"));
   return { source: document.getElementById("course-source"), trigger, root, host: document.getElementById("app-root") };
@@ -46,6 +47,7 @@ function setup({ withSource = true, courseId = "course[1]", reduced = null } = {
   cancelledEvents = [];
   dialogRectOverride = null;
   mobileNavRect = null;
+  sidebarRect = null;
   systemReduced = reduced === "media";
   document.documentElement.dataset.motion = reduced === "attribute" ? "reduced" : "full";
   document.body.style.setProperty("overflow", "clip", "important");
@@ -57,6 +59,7 @@ function setup({ withSource = true, courseId = "course[1]", reduced = null } = {
     if (this === source) return rect(sourceRect);
     if (this === trigger) return rect(triggerRect);
     if (this.classList?.contains("mobile-bottom-nav") && mobileNavRect) return rect(mobileNavRect);
+    if (this.classList?.contains("sidebar") && sidebarRect) return rect(sidebarRect);
     if (this.classList?.contains("class-card-expansion-dialog")) {
       if (dialogRectOverride) return rect(dialogRectOverride);
       return rect({
@@ -112,6 +115,32 @@ function callsFor(selector) {
   return calls.filter((call) => call.element.matches(selector));
 }
 
+function installResizeObserverStub() {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
+  const observers = [];
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.targets = [];
+      this.disconnected = false;
+      observers.push(this);
+    }
+
+    observe(target) { this.targets.push(target); }
+    disconnect() { this.disconnected = true; }
+    notify() {
+      this.callback(this.targets.map((target) => ({ target, contentRect: rect(sidebarRect) })), this);
+    }
+  };
+  return {
+    observers,
+    restore() {
+      if (original) Object.defineProperty(globalThis, "ResizeObserver", original);
+      else delete globalThis.ResizeObserver;
+    },
+  };
+}
+
 test("expansion animates from the matched source into a bounded in-place modal and reveals details", async () => {
   const { source, render, cleanup } = setup();
   try {
@@ -125,17 +154,17 @@ test("expansion animates from the matched source into a bounded in-place modal a
     assert.equal(backdrop.closest(".reference-ui") !== null, true);
     assert.equal(dialog.getAttribute("aria-label"), "Class details");
     assert.equal(dialog.getAttribute("aria-modal"), "true");
-    assert.equal(dialog.style.left, "30px");
+    assert.equal(dialog.style.left, "18px");
     assert.equal(dialog.style.top, "60px");
     assert.equal(dialog.style.width, "840px");
     assert.equal(dialog.style.height, "740px");
     assert.equal(shape.frames.length, 31);
-    assert.deepEqual(shape.frames, createWidgetResizeSettleFrames(sourceRect, { left: 30, top: 60, width: 840, height: 740 }, 9));
+    assert.deepEqual(shape.frames, createWidgetResizeSettleFrames(sourceRect, { left: 18, top: 60, width: 840, height: 740 }, 9));
     assert.deepEqual(shape.frames[0], {
       offset: 0,
       width: "260px",
       height: "200px",
-      transform: "translate(0px, 540px)",
+      transform: "translate(12px, 540px)",
       transformOrigin: "top left",
     });
     assert.deepEqual(shape.frames.at(-1), {
@@ -349,6 +378,240 @@ test("mobile bounds keep the expanded card above the bottom navigation", async (
   }
 });
 
+test("expansion stays centered on interior cards in four- and seven-column layouts", async () => {
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  const layouts = [
+    { width: 1800, centers: [680, 1120] },
+    { width: 2400, centers: [520, 880, 1240, 1600, 1960] },
+  ];
+  try {
+    for (const layout of layouts) {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: layout.width });
+      for (const center of layout.centers) {
+        sourceRect = { left: center - 80, top: 400, width: 160, height: 120 };
+        const { render, cleanup } = setup();
+        try {
+          await render();
+          const dialog = document.querySelector(".class-card-expansion-dialog");
+          const left = Number.parseFloat(dialog.style.left);
+          assert.equal(left, center - 420);
+          assert.equal(left + Number.parseFloat(dialog.style.width) / 2, center);
+        } finally {
+          await cleanup();
+        }
+      }
+    }
+  } finally {
+    sourceRect = { left: 30, top: 600, width: 260, height: 200 };
+    if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth);
+  }
+});
+
+test("viewport edges clamp the expansion while unconstrained animation frames keep the source center", async () => {
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
+  try {
+    for (const { left: anchorLeft, expectedLeft } of [
+      { left: 10, expectedLeft: 18 },
+      { left: 1150, expectedLeft: 342 },
+    ]) {
+      sourceRect = { left: anchorLeft, top: 500, width: 40, height: 100 };
+      const { render, cleanup } = setup();
+      try {
+        await render();
+        assert.equal(document.querySelector(".class-card-expansion-dialog").style.left, `${expectedLeft}px`);
+      } finally {
+        await cleanup();
+      }
+    }
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1800 });
+    sourceRect = { left: 540, top: 500, width: 240, height: 120 };
+    const { render, cleanup } = setup();
+    try {
+      await render();
+      const dialog = document.querySelector(".class-card-expansion-dialog");
+      const targetLeft = Number.parseFloat(dialog.style.left);
+      const sourceCenter = sourceRect.left + sourceRect.width / 2;
+      const shape = callsFor(".class-card-expansion-dialog")[0];
+      assert.equal(shape.frames.length, 31);
+      for (const frame of shape.frames) {
+        const translation = frame.transform.match(/^translate\(([-\d.]+)px, ([-\d.]+)px\)$/);
+        assert.ok(translation, `unexpected transform: ${frame.transform}`);
+        const frameCenter = targetLeft + Number(translation[1]) + Number.parseFloat(frame.width) / 2;
+        assert.ok(Math.abs(frameCenter - sourceCenter) < 1e-8, `frame center ${frameCenter} differs from source center ${sourceCenter}`);
+      }
+    } finally {
+      await cleanup();
+    }
+  } finally {
+    sourceRect = { left: 30, top: 600, width: 260, height: 200 };
+    if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth);
+  }
+});
+
+test("resize reflows the expansion around the source's latest center", async () => {
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 1800 });
+  sourceRect = { left: 380, top: 500, width: 220, height: 100 };
+  const { render, cleanup } = setup();
+  try {
+    await render();
+    sourceRect = { left: 980, top: 500, width: 220, height: 100 };
+    await act(async () => window.dispatchEvent(new window.Event("resize")));
+
+    const dialog = document.querySelector(".class-card-expansion-dialog");
+    const latestCenter = sourceRect.left + sourceRect.width / 2;
+    const left = Number.parseFloat(dialog.style.left);
+    assert.equal(left, latestCenter - Number.parseFloat(dialog.style.width) / 2);
+    assert.equal(callsFor(".class-card-expansion-dialog").length, 2);
+    assert.equal(callsFor(".class-card-expansion-dialog").at(-1).frames.at(-1).transform, "translate(0px, 0px)");
+  } finally {
+    await cleanup();
+    sourceRect = { left: 30, top: 600, width: 260, height: 200 };
+    if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth);
+  }
+});
+
+test("expanded and collapsed sidebars set a left boundary while interior cards stay centered", async () => {
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
+  try {
+    for (const { collapsed, sidebarRight, center, expectedLeft } of [
+      { collapsed: false, sidebarRight: 246, center: 300, expectedLeft: 264 },
+      { collapsed: true, sidebarRight: 82, center: 300, expectedLeft: 100 },
+      { collapsed: false, sidebarRight: 246, center: 900, expectedLeft: 480 },
+      { collapsed: true, sidebarRight: 82, center: 900, expectedLeft: 480 },
+    ]) {
+      sourceRect = { left: center - 100, top: 500, width: 200, height: 160 };
+      const { render, cleanup } = setup();
+      try {
+        sidebarRect = { left: 0, top: 0, width: sidebarRight, height: 900 };
+        document.querySelector(".reference-ui").classList.toggle("sidebar-collapsed", collapsed);
+        await render();
+        const dialog = document.querySelector(".class-card-expansion-dialog");
+        assert.equal(dialog.style.left, `${expectedLeft}px`);
+        assert.equal(dialog.style.width, "840px");
+        if (center === 900) assert.equal(Number.parseFloat(dialog.style.left) + 420, center);
+      } finally {
+        await cleanup();
+      }
+    }
+  } finally {
+    sidebarRect = null;
+    sourceRect = { left: 30, top: 600, width: 260, height: 200 };
+    if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth);
+  }
+});
+
+test("desktop expansion width is limited to the space right of a visible sidebar", async () => {
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 900 });
+  sourceRect = { left: 500, top: 500, width: 200, height: 140 };
+  const { render, cleanup } = setup();
+  try {
+    sidebarRect = { left: 0, top: 0, width: 246, height: 900 };
+    await render();
+    const dialog = document.querySelector(".class-card-expansion-dialog");
+    assert.equal(dialog.style.left, "264px");
+    assert.equal(dialog.style.width, "618px");
+    assert.equal(Number.parseFloat(dialog.style.left) + Number.parseFloat(dialog.style.width), 882);
+  } finally {
+    await cleanup();
+    sidebarRect = null;
+    sourceRect = { left: 30, top: 600, width: 260, height: 200 };
+    if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth);
+  }
+});
+
+test("hidden and offscreen mobile sidebars do not shrink or shift the expansion", async () => {
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+  try {
+    for (const geometry of [
+      { rect: { left: 0, top: 0, width: 270, height: 844 }, hidden: true },
+      { rect: { left: -270, top: 0, width: 270, height: 844 }, hidden: false },
+    ]) {
+      sourceRect = { left: 90, top: 500, width: 200, height: 120 };
+      const { render, cleanup } = setup();
+      try {
+        const sidebar = document.querySelector(".sidebar");
+        sidebarRect = geometry.rect;
+        if (geometry.hidden) sidebar.style.display = "none";
+        await render();
+        const dialog = document.querySelector(".class-card-expansion-dialog");
+        assert.equal(dialog.style.left, "12px");
+        assert.equal(dialog.style.width, "366px");
+      } finally {
+        await cleanup();
+      }
+    }
+  } finally {
+    sidebarRect = null;
+    sourceRect = { left: 30, top: 600, width: 260, height: 200 };
+    if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth);
+  }
+});
+
+test("fallback expansion centers in the area remaining beside the sidebar", async () => {
+  sourceRect = { left: -500, top: -600, width: 240, height: 180 };
+  const { render, cleanup } = setup();
+  try {
+    sidebarRect = { left: 0, top: 0, width: 246, height: 900 };
+    await render();
+    const dialog = document.querySelector(".class-card-expansion-dialog");
+    assert.equal(dialog.style.left, "303px");
+    assert.equal(Number.parseFloat(dialog.style.left) + Number.parseFloat(dialog.style.width) / 2, 723);
+  } finally {
+    await cleanup();
+    sidebarRect = null;
+    sourceRect = { left: 30, top: 600, width: 260, height: 200 };
+  }
+});
+
+test("sidebar ResizeObserver ignores the initial size and applies changed bounds without overlapping animation", async () => {
+  const observerStub = installResizeObserverStub();
+  sourceRect = { left: 240, top: 500, width: 120, height: 120 };
+  const { render, cleanup } = setup();
+  let observer;
+  try {
+    sidebarRect = { left: 0, top: 0, width: 246, height: 900 };
+    await render();
+    observer = observerStub.observers[0];
+    assert.ok(observer);
+    assert.equal(observer.targets[0], document.querySelector(".sidebar"));
+    const initialShape = callsFor(".class-card-expansion-dialog")[0];
+    assert.equal(document.querySelector(".class-card-expansion-dialog").style.left, "264px");
+
+    observer.notify();
+    assert.equal(initialShape.animation.cancelled, false, "an unchanged initial observation leaves the opening animation alone");
+    assert.equal(callsFor(".class-card-expansion-dialog").length, 1);
+
+    sidebarRect = { left: 0, top: 0, width: 320, height: 900 };
+    observer.notify();
+    assert.equal(initialShape.animation.cancelled, true);
+    assert.equal(callsFor(".class-card-expansion-dialog").length, 1, "sidebar resize directly applies the new bounds");
+    assert.equal(document.querySelector(".class-card-expansion-dialog").style.left, "338px");
+
+    sidebarRect = { left: 0, top: 0, width: 360, height: 900 };
+    await act(async () => window.dispatchEvent(new window.Event("resize")));
+    const windowResizeShape = callsFor(".class-card-expansion-dialog").at(-1);
+    assert.equal(callsFor(".class-card-expansion-dialog").length, 2);
+    assert.equal(windowResizeShape.animation.cancelled, false);
+    assert.equal(document.querySelector(".class-card-expansion-dialog").style.left, "378px");
+
+    observer.notify();
+    assert.equal(windowResizeShape.animation.cancelled, false, "the observer sees the edge already cached by the window resize");
+    assert.equal(callsFor(".class-card-expansion-dialog").length, 2, "unchanged observer size does not replace the resize animation");
+  } finally {
+    await cleanup();
+    observerStub.restore();
+    sidebarRect = null;
+    sourceRect = { left: 30, top: 600, width: 260, height: 200 };
+  }
+  assert.equal(observer.disconnected, true);
+});
+
 test("trigger geometry handles missing sources and offscreen sources use a centered fallback", async () => {
   const missing = setup({ withSource: false });
   try {
@@ -357,7 +620,7 @@ test("trigger geometry handles missing sources and offscreen sources use a cente
     const fromTrigger = callsFor(".class-card-expansion-dialog")[0];
     assert.equal(fromTrigger.frames[0].width, "120px");
     assert.equal(fromTrigger.frames[0].height, "44px");
-    assert.equal(fromTrigger.frames[0].transform, "translate(0px, 432px)");
+    assert.equal(fromTrigger.frames[0].transform, "translate(82px, 432px)");
   } finally {
     await missing.cleanup();
   }

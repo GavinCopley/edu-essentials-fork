@@ -72,6 +72,16 @@ function getMobileNavTop(): number {
   return rect.height > 0 && rect.top < window.innerHeight && rect.bottom > 0 ? rect.top : window.innerHeight;
 }
 
+function getSidebarRight(): number {
+  const sidebar = document.querySelector<HTMLElement>(".sidebar");
+  if (!sidebar) return 0;
+  const style = window.getComputedStyle(sidebar);
+  if (style.display === "none" || style.visibility === "hidden") return 0;
+  const rect = sidebar.getBoundingClientRect();
+  return hasArea(rect) && rect.right > 0 && rect.left < window.innerWidth
+    && rect.bottom > 0 && rect.top < window.innerHeight ? rect.right : 0;
+}
+
 function isVisibleAnchor(rect: WidgetMotionRect): boolean {
   const navTop = getMobileNavTop();
   return hasArea(rect) && rect.left < window.innerWidth && rect.left + rect.width > 0
@@ -82,14 +92,16 @@ function getExpansionRect(anchor: WidgetMotionRect | null): WidgetMotionRect {
   const viewportWidth = Math.max(1, window.innerWidth);
   const viewportHeight = Math.max(1, window.innerHeight);
   const margin = viewportWidth <= 600 ? 12 : 18;
+  const minLeft = getSidebarRight() + margin;
   const availableBottom = Math.min(viewportHeight, getMobileNavTop());
-  const width = Math.max(1, Math.min(840, viewportWidth - margin * 2));
+  const width = Math.max(1, Math.min(840, viewportWidth - minLeft - margin));
   const height = Math.max(1, Math.min(740, availableBottom - margin * 2));
-  const maxLeft = Math.max(margin, viewportWidth - margin - width);
+  const maxLeft = Math.max(minLeft, viewportWidth - margin - width);
   const maxTop = Math.max(margin, availableBottom - margin - height);
+  // Grow equally on both sides, staying between the sidebar and the viewport edge.
   const left = anchor
-    ? Math.min(maxLeft, Math.max(margin, anchor.left))
-    : (viewportWidth - width) / 2;
+    ? Math.min(maxLeft, Math.max(minLeft, anchor.left + (anchor.width - width) / 2))
+    : minLeft + (maxLeft - minLeft) / 2;
   const top = anchor
     ? Math.min(maxTop, Math.max(margin, anchor.top + anchor.height - height))
     : margin + (maxTop - margin) / 2;
@@ -206,6 +218,9 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     let sourceSnapshot: SourceSnapshot | null = null;
     let bodyOverflow: SavedProperty | null = null;
     let shapeAnimation: Animation | null = null;
+    let sidebarObserver: ResizeObserver | null = null;
+    const sidebar = document.querySelector<HTMLElement>(".sidebar");
+    let sidebarRight = getSidebarRight();
     const contentAnimations = new Set<Animation>();
     const source = Array.from(document.querySelectorAll<HTMLElement>("[data-course-card-id]"))
       .find((candidate) => candidate.getAttribute("data-course-card-id") === courseId) ?? null;
@@ -405,6 +420,8 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       cancelShape();
       cancelContent();
       window.removeEventListener("resize", handleResize);
+      sidebarObserver?.disconnect();
+      sidebar?.removeEventListener("transitionend", handleSidebarReflow);
       restoreSource();
       restoreBody();
       restoreFocusIfAppropriate();
@@ -436,6 +453,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       const previewFilter = previewLayer.hidden ? getWidgetResizeContentFilter(8) : previewStyle.filter;
       cancelShape();
       cancelContent();
+      expansionDialog.dataset.closing = "true";
       previewLayer.hidden = !sourceRef.current;
       previewLayer.style.opacity = previewOpacity;
       previewLayer.style.filter = previewFilter;
@@ -462,8 +480,25 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       animateShape(from, to, finishClose);
     }
 
+    function currentExpansionRect(): WidgetMotionRect {
+      const anchorElement = sourceRef.current ?? triggerRef.current;
+      const anchorRect = anchorElement?.isConnected ? anchorElement.getBoundingClientRect() : null;
+      return getExpansionRect(anchorRect && isVisibleAnchor(anchorRect) ? anchorRect : null);
+    }
+
+    function handleSidebarReflow() {
+      if (released || closing) return;
+      const nextRight = getSidebarRight();
+      if (nextRight === sidebarRight) return;
+      sidebarRight = nextRight;
+      // Follow the sidebar transition directly so the dialog cannot lag behind its edge.
+      cancelShape();
+      applyRect(expansionDialog, currentExpansionRect());
+    }
+
     function handleResize() {
       if (released) return;
+      sidebarRight = getSidebarRight();
       const from = expansionDialog.getBoundingClientRect();
       if (closing) {
         const to = currentReturnRect();
@@ -474,10 +509,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
         animateShape(from, to, finishClose);
         return;
       }
-      const anchorElement = sourceRef.current ?? triggerRef.current;
-      const anchorRect = anchorElement?.isConnected ? anchorElement.getBoundingClientRect() : null;
-      const nextAnchor = anchorRect && isVisibleAnchor(anchorRect) ? anchorRect : null;
-      const to = getExpansionRect(nextAnchor);
+      const to = currentExpansionRect();
       if (!canAnimate) {
         cancelShape();
         applyRect(expansionDialog, to);
@@ -488,6 +520,13 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
 
     closeRef.current = requestClose;
     window.addEventListener("resize", handleResize);
+    if (sidebar) {
+      sidebar.addEventListener("transitionend", handleSidebarReflow);
+      if (typeof ResizeObserver !== "undefined") {
+        sidebarObserver = new ResizeObserver(handleSidebarReflow);
+        sidebarObserver.observe(sidebar);
+      }
+    }
     if (canAnimate && anchor) animateShape(startRect, destination);
     else applyRect(expansionDialog, destination);
     revealContent();
