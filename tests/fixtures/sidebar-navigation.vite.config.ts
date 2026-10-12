@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { nitro } from "nitro/vite";
 import vinext from "vinext";
 import { defineConfig, type Plugin } from "vite";
-import vercelConfig from "../../vite.vercel.config.ts";
+import vercelConfig from "../../vite.vercel.config";
 
 if (process.env.EDU_NAVIGATION_TEST !== "1") {
   throw new Error("This fixture requires EDU_NAVIGATION_TEST=1.");
