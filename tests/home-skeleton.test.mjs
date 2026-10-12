@@ -477,6 +477,9 @@ test("switching workspaces and changing size or Today visibility refresh the acc
     const customizeButton = app.rootNode.querySelector('.workspace-actions button[aria-pressed]');
     assert.ok(customizeButton, "workspace has a customization toggle");
     if (customizeButton.getAttribute("aria-pressed") !== "true") await act(async () => customizeButton.click());
+    const workspaceOptions = app.rootNode.querySelector('button[aria-label="Workspace options"]');
+    assert.ok(workspaceOptions, "customization exposes workspace options");
+    await act(async () => workspaceOptions.click());
     const restoreToday = app.rootNode.querySelector('button[aria-label="Restore Today section"]');
     assert.ok(restoreToday, "the hidden Today section has a restore action");
     await act(async () => restoreToday.click());

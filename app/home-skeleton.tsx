@@ -122,6 +122,7 @@ export function HomeSkeleton({ layout, greeting, reducedMotion = false }: HomeSk
             <span className="home-skeleton__tab" />
           </div>
           <div className="home-skeleton__actions">
+            <span className="home-skeleton__action" data-control="save-status" />
             <span className="home-skeleton__action" data-control="widget-customization" />
             <span className="home-skeleton__action" data-control="customize" />
             <span className="home-skeleton__action" data-control="add-widget" />
