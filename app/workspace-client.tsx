@@ -1692,8 +1692,14 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
           </div>
         </section>
         <section className="dashboard-classes" aria-labelledby="dashboard-classes-title">
-          <div className="section-title-row dashboard-classes-heading"><div className="dashboard-classes-title"><div><h2 id="dashboard-classes-title">Your classes</h2><p>{courses.length} active {courses.length === 1 ? "course" : "courses"} · {courses.reduce((sum, course) => sum + course.credits, 0)} total credits</p></div><div className="view-toggle" role="group" aria-label="Dashboard view"><button aria-pressed={dashboardView === "cards"} className={dashboardView === "cards" ? "active" : ""} onClick={() => setDashboardView("cards")}><LayoutGrid size={16} /> Cards</button><button aria-pressed={dashboardView === "list"} className={dashboardView === "list" ? "active" : ""} onClick={() => setDashboardView("list")}><List size={16} /> List</button></div></div><button className="text-button" onClick={() => setDashboardView(dashboardView === "cards" ? "list" : "cards")}>{dashboardView === "cards" ? "View every assignment" : "Back to classes"} <ArrowRight size={14} /></button></div>
-        <div className="academic-actions dashboard-tools"><button className="secondary-button" onClick={() => setStudyOpen(true)}>Study goals, history & grades</button><button className="secondary-button" onClick={newAssignment}><Plus size={14} />Add assignment</button><button className="secondary-button" onClick={newReview}><Upload size={14} />Import syllabus</button>{dashboardView === "list" && <button className="secondary-button" onClick={() => setAddClassOpen(true)}><Plus size={14} />Add class</button>}{extraData.syllabusDrafts.map((draft) => <button className="secondary-button" key={draft.id} onClick={() => setSyllabusId(draft.id)}>Resume {draft.course.code || "syllabus review"}</button>)}</div>
+          <div className="section-title-row dashboard-classes-heading">
+            <h2 id="dashboard-classes-title">Your classes</h2>
+            <div className="dashboard-classes-actions">
+              <button className="secondary-button" onClick={() => setAddClassOpen(true)}><Plus size={16} />Add Class</button>
+              <div className="view-toggle" role="group" aria-label="Dashboard view"><button aria-pressed={dashboardView === "cards"} className={dashboardView === "cards" ? "active" : ""} onClick={() => setDashboardView("cards")}><LayoutGrid size={16} /> Cards</button><button aria-pressed={dashboardView === "list"} className={dashboardView === "list" ? "active" : ""} onClick={() => setDashboardView("list")}><List size={16} /> List</button></div>
+            </div>
+          </div>
+        <div className="academic-actions dashboard-tools"><button className="secondary-button" onClick={() => setStudyOpen(true)}>Study goals, history & grades</button><button className="secondary-button" onClick={newAssignment}><Plus size={14} />Add assignment</button><button className="secondary-button" onClick={newReview}><Upload size={14} />Import syllabus</button>{extraData.syllabusDrafts.map((draft) => <button className="secondary-button" key={draft.id} onClick={() => setSyllabusId(draft.id)}>Resume {draft.course.code || "syllabus review"}</button>)}</div>
         {dashboardView === "cards" ? (
           <div>
             <div className="class-grid">
@@ -1704,7 +1710,6 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
                   <div className="class-card-body"><div><h3>{course.name}</h3><p>{course.instructor} · {course.credits} credits</p></div><div className="class-statuses"><span className="status-overdue"><AlertOctagon size={14} />{courseAssignments.filter((item) => item.status === "overdue").length}<small>overdue</small></span><span className="status-today"><Clock3 size={14} />{courseAssignments.filter((item) => item.status === "today").length}<small>today</small></span><span className="status-later"><Circle size={14} />{courseAssignments.filter((item) => item.status === "later").length}<small>later</small></span></div></div>
                 </button>;
               })}
-              <button className="class-card add-class-card" onClick={() => { setAddClassOpen(true); }}><span><Plus size={24} /></span><strong>Add another class</strong><small>Enter it manually or import a syllabus</small></button>
             </div>
           </div>
         ) : renderAssignmentTable(assignments)}

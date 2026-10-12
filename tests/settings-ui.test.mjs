@@ -1359,7 +1359,14 @@ test("academic forms, syllabus review and calendar save complete account snapsho
   });
 
   await t.test("class fields and schedule survive a failed save, retry, edit, and reload", async () => {
-    reset(); const server = installWorkspaceServer(); await render(Workspace, { initialProfile: baseProfile }); await click("Courses"); await act(async () => rootNode.querySelector(".add-class-card").click()); await click("Manual entry");
+    reset(); const server = installWorkspaceServer(); await render(Workspace, { initialProfile: baseProfile }); await click("Courses");
+    assert.equal(rootNode.querySelector(".add-class-card"), null);
+    assert.ok(!rootNode.querySelector(".dashboard-classes-heading").textContent.includes("total credits"));
+    assert.ok(!rootNode.querySelector(".dashboard-classes-heading").textContent.includes("View every assignment"));
+    await click("List"); await click("Add Class");
+    assert.ok(rootNode.querySelector('[role="dialog"][aria-label="Add a class"]'));
+    await clickIn(rootNode.querySelector('[aria-label="Add a class"]'), "Close");
+    await click("Cards"); await click("Add Class"); await click("Manual entry");
     for (const [key, value] of Object.entries({ "Course code": "BIO 42", "Class name": "Field Biology", "Credits": "4", "Instructor": "Dr. Rivers", "Location / meeting notes": "Lab 4", "Office hours": "Friday by appointment" })) await edit(key, value);
     await click("Add meeting"); await edit("First date", "2026-09-01"); await edit("Last date", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
     assert.equal(unloadBlocked(), true); await click("Save class");
@@ -1378,7 +1385,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     await saveAndReload(); let a = server.dashboard.d.assignments[0]; assert.equal(a.type, "Project"); assert.equal(a.dueTime, "17:00"); assert.equal(a.notes, "Outline ready"); assert.deepEqual(a.checklist, [true, false, false]);
     await click("Courses"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark complete"); await click("Close assignment"); await saveAndReload();
     a = server.dashboard.d.assignments[0]; assert.equal(a.progress, 100); assert.ok(a.completedAt); assert.equal(a.progressBeforeCompletion, 37);
-    await click("Courses"); await click("View every assignment"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark incomplete"); await click("Close assignment"); await saveAndReload();
+    await click("Courses"); await click("List"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark incomplete"); await click("Close assignment"); await saveAndReload();
     assert.equal(server.dashboard.d.assignments[0].progress, 37); assert.equal(server.dashboard.d.assignments[0].completedAt, null);
     await click("Courses"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Delete assignment"); await saveAndReload(); assert.equal(server.dashboard.d.assignments.length, 0);
   });
