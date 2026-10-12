@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAuthConfig } from "./lib/supabase-server";
 import { isAuthUnavailable, isGoogleUser, isPublicPath } from "./lib/auth-policy";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
   if (isPublicPath(path)) return NextResponse.next();
   let response = NextResponse.next({ request });
