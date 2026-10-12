@@ -56,8 +56,8 @@ test("increased course damping reduces overshoot in both directions without chan
   const small = { left: 30, top: 500, width: 260, height: 200 };
   const large = { left: 30, top: 40, width: 840, height: 740 };
   for (const [from, to] of [[small, large], [large, small]]) {
-    const original = motion.createWidgetResizeSettleFrames(from, to);
-    const softened = motion.createWidgetResizeSettleFrames(from, to, 9);
+    const original = motion.createWidgetResizeSettleFrames(from, to, 9);
+    const softened = motion.createWidgetResizeSettleFrames(from, to, 11);
     const overshoot = (frames) => Math.max(...frames.map((frame) => (Number.parseFloat(frame.width) - to.width) / (to.width - from.width)));
     assert.ok(overshoot(softened) > 0);
     assert.ok(overshoot(softened) < overshoot(original) * 0.65);

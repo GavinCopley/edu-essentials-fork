@@ -159,7 +159,7 @@ test("expansion animates from the matched source into a bounded in-place modal a
     assert.equal(dialog.style.width, "840px");
     assert.equal(dialog.style.height, "740px");
     assert.equal(shape.frames.length, 31);
-    assert.deepEqual(shape.frames, createWidgetResizeSettleFrames(sourceRect, { left: 18, top: 60, width: 840, height: 740 }, 9));
+    assert.deepEqual(shape.frames, createWidgetResizeSettleFrames(sourceRect, { left: 18, top: 60, width: 840, height: 740 }, 11));
     assert.deepEqual(shape.frames[0], {
       offset: 0,
       width: "260px",

@@ -280,7 +280,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
         onFinish?.();
         return;
       }
-      const animation = expansionDialog.animate(createWidgetResizeSettleFrames(from, to, 9), {
+      const animation = expansionDialog.animate(createWidgetResizeSettleFrames(from, to, 11), {
         duration: WIDGET_RESIZE_SETTLE_DURATION_MS,
         easing: WIDGET_RESIZE_SETTLE_EASING,
         fill: "both",
