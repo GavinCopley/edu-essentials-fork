@@ -51,6 +51,24 @@
   border-radius: inherit;
 }
 
+.class-card-expansion-shared-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.class-card-expansion-morph {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  pointer-events: none;
+  transform-origin: top left;
+}
+
 .class-card-expansion-content {
   position: relative;
   z-index: 1;
@@ -77,4 +95,14 @@
   .class-card-expansion-dialog {
     scroll-behavior: auto;
   }
+
+  .class-card,
+  .class-card * {
+    transition: none !important;
+  }
+}
+
+html[data-motion="reduced"] .class-card,
+html[data-motion="reduced"] .class-card * {
+  transition: none !important;
 }

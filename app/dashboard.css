@@ -53,11 +53,15 @@
 .dashboard-page button:focus-visible, .dashboard-page summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
 .expanded-class-header { flex: 0 0 auto; height: 190px; padding: 24px; }
 .expanded-class-header > svg { position: relative; z-index: 1; }
+.class-card-visual > [data-course-morph="icon"] { position: relative; z-index: 1; }
+.class-card-visual > [data-course-morph="watermark"] { z-index: 1; }
+.class-card-media { position: absolute; z-index: 0; inset: 0; overflow: hidden; pointer-events: none; }
 .expanded-class-header .course-watermark { top: -28px; font-size: 140px; }
 .expanded-class-header .course-pill { padding: 7px 12px; font-size: 12px; }
 .expanded-class-heading { display: flex; align-items: center; gap: 14px; min-width: 0; margin-bottom: 20px; }
 .expanded-class-heading > div { min-width: 0; }
-.expanded-class-heading h2 { margin: 8px 0; font-size: 24px; overflow-wrap: anywhere; }
+.expanded-class-heading h2 { display: flex; align-items: baseline; gap: 0.25em; margin: 8px 0; font-size: 24px; overflow-wrap: anywhere; }
+.expanded-class-heading [data-course-morph="name"] { flex: 1; min-width: 0; }
 .expanded-class-heading p { margin: 0; color: var(--muted); font-size: 12px; }
 .expanded-class-header > button { position: absolute; z-index: 2; top: 20px; right: 20px; gap: 8px; background: var(--surface); }
 .expanded-class-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 24px; overscroll-behavior: contain; }

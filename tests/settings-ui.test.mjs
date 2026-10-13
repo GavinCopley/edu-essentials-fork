@@ -1296,7 +1296,10 @@ test("class cards enlarge in place with all class tools and retain nested assign
     const banner = expanded.querySelector(".expanded-class-header.class-card-visual");
     const cardVisual = card.querySelector(".class-card-visual");
     assert.ok(banner);
-    assert.equal(banner.style.background, cardVisual.style.background);
+    const bannerMedia = banner.querySelector('[data-course-morph="visual"]');
+    const cardMedia = cardVisual.querySelector('[data-course-morph="visual"]');
+    assert.ok(bannerMedia.style.background);
+    assert.equal(bannerMedia.style.background, cardMedia.style.background);
     assert.equal(banner.querySelector(".course-watermark").textContent, cardVisual.querySelector(".course-watermark").textContent);
     assert.equal(banner.querySelector(".course-pill").textContent, sampleCourse.code);
     assert.equal(expanded.querySelector(".class-card-expansion-content").firstElementChild, banner);

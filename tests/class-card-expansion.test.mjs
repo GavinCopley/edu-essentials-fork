@@ -14,8 +14,7 @@ Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 })
 const { createElement: h, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { default: ClassCardExpansion } = await import(await clientModule("app/class-card-expansion.tsx"));
-const { getWidgetResizeContentFilter } = await import(await clientModule("lib/widget-resize.ts"));
-const { createWidgetResizeSettleFrames } = await import(await clientModule("lib/widget-resize-motion.ts"));
+const { createCourseExpansionSettleFrames, getCourseExpansionProgress, COURSE_EXPANSION_CONTENT_DURATION_MS, COURSE_EXPANSION_CONTENT_FADE_IN_START_MS, COURSE_EXPANSION_CONTENT_FADE_OUT_END_MS } = await import(await clientModule("lib/course-expansion-motion.ts"));
 
 let systemReduced = false;
 let sourceRect = { left: 30, top: 600, width: 260, height: 200 };
@@ -111,6 +110,64 @@ function setup({ withSource = true, courseId = "course[1]", reduced = null } = {
   return { source, trigger, root, host, render, cleanup };
 }
 
+const courseMorphRects = {
+  source: {
+    visual: { left: 30, top: 600, width: 260, height: 132 },
+    watermark: { left: 210, top: 603, width: 70, height: 76 },
+    code: { left: 47, top: 700, width: 62, height: 22 },
+    icon: { left: 250, top: 700, width: 34, height: 34 },
+    name: { left: 45, top: 741, width: 180, height: 18 },
+    instructor: { left: 45, top: 774, width: 78, height: 14 },
+    credits: { left: 131, top: 774, width: 62, height: 14 },
+  },
+  target: {
+    visual: { left: 19, top: 61, width: 838, height: 190 },
+    watermark: { left: 690, top: 34, width: 140, height: 132 },
+    code: { left: 43, top: 200, width: 86, height: 30 },
+    icon: { left: 750, top: 200, width: 44, height: 44 },
+    name: { left: 43, top: 280, width: 360, height: 30 },
+    instructor: { left: 43, top: 520, width: 90, height: 18 },
+    credits: { left: 43, top: 320, width: 102, height: 18 },
+  },
+};
+
+function setMorphFixture(source) {
+  source.innerHTML = `<div data-course-morph="visual" style="background-image:linear-gradient(135deg, rgb(230, 230, 255), rgb(180, 180, 255))"><img src="data:image/svg+xml,%3Csvg/%3E" alt="" /></div><span data-course-morph="watermark" style="opacity:.06">CS</span><span data-course-morph="code">CS101</span><svg data-course-morph="icon" viewBox="0 0 24 24" width="34" height="34"><path d="M2 3h8v18H2z" /></svg><div><h3 data-course-morph="name" style="font-size:14px">World History</h3><p><span data-course-morph="instructor">Dr Ada</span> · <span data-course-morph="credits">4 credits</span></p></div>`;
+}
+
+function installMorphRectMocks() {
+  const originalHtmlRect = window.HTMLElement.prototype.getBoundingClientRect;
+  const originalElementRect = window.Element.prototype.getBoundingClientRect;
+  const customRect = (element) => {
+    if (element.classList?.contains("class-card-expansion-morph")) {
+      const dialog = document.querySelector(".class-card-expansion-dialog");
+      const parent = dialog?.getBoundingClientRect();
+      if (!parent) return null;
+      return rect({
+        left: parent.left + 1 + (Number.parseFloat(element.style.left) || 0),
+        top: parent.top + 1 + (Number.parseFloat(element.style.top) || 0),
+        width: Number.parseFloat(element.style.width) || 0,
+        height: Number.parseFloat(element.style.height) || 0,
+      });
+    }
+    const key = element.getAttribute?.("data-course-morph");
+    if (!key) return null;
+    if (element.closest?.("[data-course-card-id]")) return rect(courseMorphRects.source[key]);
+    if (element.closest?.(".class-card-expansion-content")) return rect(courseMorphRects.target[key]);
+    return null;
+  };
+  window.HTMLElement.prototype.getBoundingClientRect = function () {
+    return customRect(this) ?? originalHtmlRect.call(this);
+  };
+  window.Element.prototype.getBoundingClientRect = function () {
+    return customRect(this) ?? originalElementRect.call(this);
+  };
+  return () => {
+    window.HTMLElement.prototype.getBoundingClientRect = originalHtmlRect;
+    window.Element.prototype.getBoundingClientRect = originalElementRect;
+  };
+}
+
 function callsFor(selector) {
   return calls.filter((call) => call.element.matches(selector));
 }
@@ -181,7 +238,7 @@ test("expansion animates from the matched source into a bounded in-place modal a
     assert.equal(dialog.style.width, "840px");
     assert.equal(dialog.style.height, "740px");
     assert.equal(shape.frames.length, 31);
-    assert.deepEqual(geometryFrames(shape.frames), createWidgetResizeSettleFrames(sourceRect, { left: 18, top: 60, width: 840, height: 740 }, 11));
+    assert.deepEqual(geometryFrames(shape.frames), createCourseExpansionSettleFrames(sourceRect, { left: 18, top: 60, width: 840, height: 740 }));
     assert.deepEqual(shape.frames[0], {
       offset: 0,
       width: "260px",
@@ -216,15 +273,30 @@ test("expansion animates from the matched source into a bounded in-place modal a
     assert.equal(document.body.style.getPropertyValue("overflow"), "hidden");
 
     const reveal = callsFor(".class-card-expansion-content")[0];
-    assert.deepEqual(reveal.frames, [
-      { opacity: 0, filter: getWidgetResizeContentFilter(8) },
-      { opacity: 1, filter: getWidgetResizeContentFilter(0) },
-    ]);
-    assert.equal(reveal.options.duration, 220);
-    assert.equal(reveal.options.easing, "ease-out");
     const previewFade = callsFor(".class-card-expansion-preview")[0];
-    assert.equal(previewFade.options.duration, 220);
-    assert.equal(previewFade.options.easing, "ease-out");
+    assert.deepEqual(reveal.frames, [
+      { offset: 0, opacity: "0" },
+      { offset: COURSE_EXPANSION_CONTENT_FADE_IN_START_MS / COURSE_EXPANSION_CONTENT_DURATION_MS, opacity: "0", easing: "ease-out" },
+      { offset: 1, opacity: 1 },
+    ]);
+    assert.deepEqual(previewFade.frames, [
+      { offset: 0, opacity: "1", easing: "ease-out" },
+      { offset: COURSE_EXPANSION_CONTENT_FADE_OUT_END_MS / COURSE_EXPANSION_CONTENT_DURATION_MS, opacity: 0 },
+      { offset: 1, opacity: 0 },
+    ]);
+    assert.ok(COURSE_EXPANSION_CONTENT_FADE_IN_START_MS < COURSE_EXPANSION_CONTENT_FADE_OUT_END_MS, "incoming details begin while the outgoing preview is still faintly visible");
+    assert.equal(previewFade.frames[2].opacity, 0, "the outgoing preview stays hidden as details enter");
+    assert.equal(reveal.frames.some((frame) => "filter" in frame), false, "content transitions use opacity without blur");
+    assert.equal(previewFade.frames.some((frame) => "filter" in frame), false, "the preview stays crisp as it fades");
+    assert.equal(reveal.options.duration, COURSE_EXPANSION_CONTENT_DURATION_MS);
+    assert.equal(reveal.options.easing, "linear");
+    assert.equal(previewFade.options.duration, COURSE_EXPANSION_CONTENT_DURATION_MS);
+    assert.equal(previewFade.options.easing, "linear");
+    await act(async () => previewFade.animation.finish());
+    await act(async () => reveal.animation.finish());
+    assert.equal(preview.hidden, true);
+    assert.equal(preview.style.opacity, "1");
+    assert.equal(document.querySelector(".class-card-expansion-content").style.opacity, "1");
 
     const oldShapeCount = callsFor(".class-card-expansion-dialog").length;
     await render({ children: (close) => h("div", null, h("button", { onClick: close }, "Close class"), h("button", null, "Updated")), onClose: () => {} });
@@ -263,6 +335,338 @@ test("opening animates asymmetric source corners and shadow while the preview av
   } finally {
     await cleanup();
   }
+});
+
+test("matched visual, icon, and labels stay in an opaque shared layer through the expansion", async () => {
+  const { source, render, cleanup } = setup();
+  setMorphFixture(source);
+  const restoreRects = installMorphRectMocks();
+  const details = (close) => h("div", null,
+    h("div", { className: "expanded-class-header" },
+      h("div", { "data-course-morph": "visual", style: { backgroundImage: "linear-gradient(135deg, rgb(230, 230, 255), rgb(180, 180, 255))" } }, h("img", { src: "data:image/svg+xml,%3Csvg/%3E", alt: "" })),
+      h("span", { "data-course-morph": "watermark", style: { opacity: "0.06" } }, "CS"),
+      h("span", { "data-course-morph": "code" }, "CS101"),
+      h("svg", { "data-course-morph": "icon", viewBox: "0 0 24 24", width: 44, height: 44 }, h("path", { d: "M2 3h8v18H2z" })),
+    ),
+    h("div", { className: "expanded-class-body" },
+      h("h2", null, h("span", { "data-course-morph": "name", style: { fontSize: "24px", lineHeight: "35.4px" } }, "World History")),
+      h("p", null, h("span", { "data-course-morph": "credits" }, "4 credits")),
+      h("p", null, h("span", { "data-course-morph": "instructor" }, "Dr Ada")),
+      h("button", { onClick: close }, "Close class"),
+    ),
+  );
+  try {
+    source.focus();
+    await render({ children: details });
+    const shared = document.querySelector(".class-card-expansion-shared-layer");
+    const wrappers = [...shared.querySelectorAll(".class-card-expansion-morph")];
+    const keys = wrappers.map((wrapper) => wrapper.dataset.courseMorph).sort();
+    assert.deepEqual(keys, ["code", "credits", "icon", "instructor", "name", "visual", "watermark"]);
+    assert.equal(shared.querySelectorAll("[data-course-morph='visual'] img").length, 1);
+    assert.equal(shared.querySelector("[data-course-background-overlay]"), null, "identical gradients do not get an unnecessary overlay");
+    const imageClone = shared.querySelector(".class-card-expansion-morph[data-course-morph='visual'] img");
+    assert.equal(imageClone.style.position, "absolute");
+    assert.equal(imageClone.style.inset, "0px");
+    assert.equal(imageClone.style.width, "100%", "the image fills the morphing visual at every size");
+    assert.equal(imageClone.style.height, "100%");
+    assert.equal(imageClone.style.objectFit, "cover");
+    assert.equal(calls.some((call) => call.element === imageClone), false, "the shared photo remains fully opaque throughout the morph");
+    const iconClone = shared.querySelector(".class-card-expansion-morph[data-course-morph='icon']").firstElementChild;
+    assert.equal(iconClone.tagName.toLowerCase(), "svg", "the SVG root remains intact in the shared snapshot");
+    assert.equal(iconClone.firstElementChild.tagName.toLowerCase(), "path");
+    assert.equal(shared.querySelector("[data-course-morph='watermark']").firstElementChild.style.opacity, "0.06");
+    assert.equal(shared.closest(".class-card-expansion-content"), null);
+    assert.equal(shared.style.opacity, "");
+    for (const target of document.querySelectorAll(".class-card-expansion-content [data-course-morph]")) {
+      assert.equal(target.style.visibility, "hidden", `${target.dataset.courseMorph} is not duplicated below its overlay`);
+    }
+
+    const visual = wrappers.find((wrapper) => wrapper.dataset.courseMorph === "visual");
+    const visualAnimation = calls.find((call) => call.element === visual);
+    assert.equal(visualAnimation.frames.length, 31);
+    assert.equal(visualAnimation.options.duration, 420);
+    assert.equal(visualAnimation.frames[0].width, "260px");
+    assert.equal(visualAnimation.frames.at(-1).width, "838px");
+    assert.equal(visualAnimation.frames.at(-1).height, "190px");
+
+    const nameWrapper = wrappers.find((wrapper) => wrapper.dataset.courseMorph === "name");
+    const nameGeometry = calls.find((call) => call.element === nameWrapper);
+    const nameClone = nameWrapper.firstElementChild;
+    const nameStyles = calls.find((call) => call.element === nameClone);
+    const overshootIndex = nameGeometry.frames.findIndex((frame) => getCourseExpansionProgress(Number(frame.offset)) > 1);
+    assert.ok(overshootIndex >= 0, "the shared spring has an intermediate overshoot frame");
+    assert.equal(nameGeometry.frames[overshootIndex].width, nameGeometry.frames.at(-1).width, "name width reaches but never overshoots its destination");
+    assert.equal(nameGeometry.frames[overshootIndex].height, nameGeometry.frames.at(-1).height, "name height reaches but never overshoots its destination");
+    assert.ok(nameStyles, "the name clone animates its typography with the shared bounds");
+    assert.equal(nameStyles.frames[overshootIndex].fontSize, nameStyles.frames.at(-1).fontSize, "font size stays at its endpoint through the spatial spring overshoot");
+
+    await act(async () => callsFor(".class-card-expansion-preview")[0].animation.finish());
+    await act(async () => callsFor(".class-card-expansion-dialog")[0].animation.finish());
+    assert.equal(shared.childElementCount, 0);
+    assert.equal(document.querySelector(".class-card-expansion-content [data-course-morph='name']").style.visibility, "");
+    assert.equal(document.querySelector(".class-card-expansion-preview [data-course-morph='name']").style.visibility, "");
+
+    await act(async () => document.querySelector(".class-card-expansion-content button").click());
+    const closingWrappers = [...shared.querySelectorAll(".class-card-expansion-morph")];
+    assert.deepEqual(closingWrappers.map((wrapper) => wrapper.dataset.courseMorph).sort(), keys);
+    for (const target of document.querySelectorAll(".class-card-expansion-content [data-course-morph]")) {
+      assert.equal(target.style.visibility, "hidden", `${target.dataset.courseMorph} stays hidden while its closing clone is visible`);
+    }
+    for (const preview of document.querySelectorAll(".class-card-expansion-preview [data-course-morph]")) {
+      assert.equal(preview.style.visibility, "hidden", `${preview.dataset.courseMorph} stays hidden while the shared clone returns`);
+    }
+    const closeShape = callsFor(".class-card-expansion-dialog").at(-1);
+    await act(async () => closeShape.animation.finish());
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+    assert.equal(document.querySelector(".class-card-expansion-dialog"), null);
+    assert.equal(source.style.visibility, "visible");
+  } finally {
+    restoreRects();
+    await cleanup();
+  }
+});
+
+test("a multiline expanded name crossfades as distinct content while common visuals still morph", async () => {
+  const { source, render, cleanup } = setup();
+  setMorphFixture(source);
+  const longName = "Cell Biology — ביולוגיה של התא, Molecular Mechanisms and Genetic Regulation";
+  source.querySelector("[data-course-morph='name']").textContent = longName;
+  const rangeRectsDescriptor = Object.getOwnPropertyDescriptor(window.Range.prototype, "getClientRects");
+  Object.defineProperty(window.Range.prototype, "getClientRects", {
+    configurable: true,
+    value() {
+      let node = this.startContainer;
+      while (node && node.nodeType !== window.Node.ELEMENT_NODE) node = node.parentNode;
+      const name = node?.closest?.("[data-course-morph='name']");
+      if (name?.closest("[data-course-card-id]")) return [{ top: 100 }, { top: 100 }];
+      if (name?.closest(".class-card-expansion-content")) return [{ top: 200 }, { top: 224 }];
+      return [];
+    },
+  });
+  const restoreRects = installMorphRectMocks();
+  const details = (close) => h("div", null,
+    h("div", { className: "expanded-class-header" },
+      h("div", { "data-course-morph": "visual", style: { backgroundImage: "linear-gradient(135deg, rgb(230, 230, 255), rgb(180, 180, 255))" } }, h("img", { src: "data:image/svg+xml,%3Csvg/%3E", alt: "" })),
+      h("span", { "data-course-morph": "code" }, "CS101"),
+    ),
+    h("div", { className: "expanded-class-body" },
+      h("h2", null, h("span", { "data-course-morph": "name", style: { fontSize: "24px", lineHeight: "24px" } }, longName)),
+      h("button", { onClick: close }, "Close class"),
+    ),
+  );
+  try {
+    await render({ children: details });
+    const shared = document.querySelector(".class-card-expansion-shared-layer");
+    const preview = document.querySelector(".class-card-expansion-preview");
+    const expandedName = document.querySelector(".class-card-expansion-content [data-course-morph='name']");
+    assert.equal(shared.querySelector("[data-course-morph='name']"), null, "different text wrapping does not use the clipped name morph");
+    assert.ok(shared.querySelector("[data-course-morph='visual']"), "the matching course image still morphs in shared bounds");
+    assert.ok(preview.querySelector("[data-course-morph='name']"), "the compact title remains in the outgoing preview");
+    assert.equal(expandedName.style.visibility, "", "the wrapped title remains in the incoming details layer");
+    assert.equal(calls.some((call) => call.element.closest?.(".class-card-expansion-morph[data-course-morph='name']")), false);
+    assert.deepEqual(callsFor(".class-card-expansion-content")[0].frames.slice(0, 2), [
+      { offset: 0, opacity: "0" },
+      { offset: COURSE_EXPANSION_CONTENT_FADE_IN_START_MS / COURSE_EXPANSION_CONTENT_DURATION_MS, opacity: "0", easing: "ease-out" },
+    ]);
+  } finally {
+    restoreRects();
+    if (rangeRectsDescriptor) Object.defineProperty(window.Range.prototype, "getClientRects", rangeRectsDescriptor);
+    else delete window.Range.prototype.getClientRects;
+    await cleanup();
+  }
+});
+
+test("different course gradients crossfade inside the single shared image morph", async () => {
+  const { source, render, cleanup } = setup();
+  setMorphFixture(source);
+  Object.defineProperties(source.querySelector("img"), {
+    complete: { value: true, configurable: true },
+    naturalWidth: { value: 100, configurable: true },
+  });
+  const restoreRects = installMorphRectMocks();
+  const sourceGradient = "linear-gradient(135deg, rgb(230, 230, 255), rgb(180, 180, 255))";
+  const targetGradient = "linear-gradient(90deg, rgb(255, 230, 230), rgb(255, 180, 180))";
+  try {
+    source.focus();
+    await render({ children: (close) => h("div", null,
+      h("div", { className: "expanded-class-header" },
+        h("div", { "data-course-morph": "visual", style: { backgroundImage: targetGradient, backgroundColor: "rgb(10, 20, 30)" } }),
+      ),
+      h("button", { onClick: close }, "Close class"),
+    ) });
+
+    const shared = document.querySelector(".class-card-expansion-shared-layer");
+    const visual = shared.querySelector(".class-card-expansion-morph[data-course-morph='visual']");
+    const overlay = visual.querySelector("[data-course-background-overlay]");
+    const image = visual.querySelector("img");
+    const visualClone = visual.firstElementChild;
+    const backgroundAnimation = calls.find((call) => call.element === overlay);
+    assert.ok(overlay);
+    assert.equal(overlay.style.backgroundImage, targetGradient);
+    assert.equal(overlay.style.opacity, "0");
+    assert.deepEqual(backgroundAnimation.frames[0], { offset: 0, opacity: "0" });
+    assert.deepEqual(backgroundAnimation.frames.at(-1), { offset: 1, opacity: "1" });
+    assert.equal(shared.querySelectorAll("[data-course-morph='visual'] img").length, 1, "the gradient layer never duplicates the image");
+    assert.equal(calls.some((call) => call.element === image), false, "the source photo remains opaque while the background changes");
+    const backgroundColorAnimation = calls.find((call) => call.element === visualClone);
+    assert.ok(backgroundColorAnimation, "a separate root style still animates with the gradient crossfade");
+    await act(async () => backgroundColorAnimation.animation.finish());
+    assert.equal(visualClone.style.backgroundImage, sourceGradient, "finishing a different root property keeps the source gradient as the backing layer");
+
+    await act(async () => callsFor(".class-card-expansion-dialog")[0].animation.finish());
+    assert.equal(shared.querySelector(".class-card-expansion-morph[data-course-morph='visual']"), visual, "the loaded source photo remains in place while the expanded image waits");
+    assert.equal(overlay.style.opacity, "1");
+    assert.equal(visualClone.style.backgroundImage, sourceGradient, "the retained photo keeps its source gradient under the target overlay");
+    await act(async () => document.querySelector(".class-card-expansion-content button").click());
+    const closingBackgroundAnimation = calls.filter((call) => call.element === overlay).at(-1);
+    assert.equal(overlay.style.backgroundImage, targetGradient, "closing reverses the existing overlay over the source backing layer");
+    assert.deepEqual(closingBackgroundAnimation.frames[0], { offset: 0, opacity: "1" });
+    assert.deepEqual(closingBackgroundAnimation.frames.at(-1), { offset: 1, opacity: "0" });
+    const closingColorAnimation = calls.filter((call) => call.element === visualClone).at(-1);
+    await act(async () => closingColorAnimation.animation.finish());
+    assert.equal(visualClone.style.backgroundImage, sourceGradient, "the closing style handoff does not replace the source backing gradient");
+  } finally {
+    restoreRects();
+    await cleanup();
+  }
+});
+
+test("a loaded source image stays visible until the expanded image decodes, with safe close cleanup", async () => {
+  for (const closeBeforeLoad of [false, true]) {
+    const { source, render, cleanup } = setup();
+    setMorphFixture(source);
+    const restoreRects = installMorphRectMocks();
+    Object.defineProperties(source.querySelector("img"), {
+      complete: { value: true, configurable: true },
+      naturalWidth: { value: 100, configurable: true },
+    });
+    try {
+      await render({ children: (close) => h("div", null,
+        h("div", { className: "expanded-class-header" }, h("div", { "data-course-morph": "visual" })),
+        h("button", { onClick: close }, "Close class"),
+      ) });
+      const target = document.querySelector(".class-card-expansion-content [data-course-morph='visual']");
+      await act(async () => {
+        for (const call of calls.filter((call) => call.options.duration === COURSE_EXPANSION_CONTENT_DURATION_MS)) call.animation.finish();
+        callsFor(".class-card-expansion-dialog")[0].animation.finish();
+      });
+      const snapshot = document.querySelector(".class-card-expansion-morph[data-course-morph='visual']");
+      assert.ok(snapshot.querySelector("img"), "the photo remains visible after geometry settles");
+      assert.equal(snapshot.style.width, "100%");
+      assert.equal(target.style.visibility, "hidden");
+      await act(async () => window.dispatchEvent(new window.Event("resize")));
+      assert.equal(snapshot.style.width, "100%", "a pending photo remains fluid after resize retargeting");
+      if (closeBeforeLoad) {
+        await act(async () => document.querySelector(".class-card-expansion-content button").click());
+        await act(async () => callsFor(".class-card-expansion-dialog").at(-1).animation.finish());
+      }
+      const image = document.createElement("img");
+      image.src = "data:image/svg+xml,%3Csvg/%3E";
+      Object.defineProperties(image, { complete: { value: true }, naturalWidth: { value: 100 } });
+      image.decode = () => Promise.resolve();
+      await act(async () => { target.appendChild(image); await new Promise((resolve) => window.setTimeout(resolve, 0)); });
+      assert.equal(document.querySelector(".class-card-expansion-morph[data-course-morph='visual']"), null);
+      if (closeBeforeLoad) {
+        assert.equal(document.querySelector(".class-card-expansion-dialog"), null);
+        assert.equal(source.style.visibility, "visible");
+      } else {
+        assert.equal(target.style.visibility, "");
+        assert.ok(target.querySelector("img").complete);
+      }
+    } finally { restoreRects(); await cleanup(); }
+  }
+});
+
+test("removing the source image releases its retained snapshot while the expanded image is pending", async () => {
+  const { source, render, cleanup } = setup();
+  setMorphFixture(source);
+  Object.defineProperties(source.querySelector("img"), {
+    complete: { value: true, configurable: true },
+    naturalWidth: { value: 100, configurable: true },
+  });
+  const restoreRects = installMorphRectMocks();
+  try {
+    await render({ children: (close) => h("div", null,
+      h("div", { className: "expanded-class-header" }, h("div", { "data-course-morph": "visual" })),
+      h("button", { onClick: close }, "Close class"),
+    ) });
+    const target = document.querySelector(".class-card-expansion-content [data-course-morph='visual']");
+    await act(async () => callsFor(".class-card-expansion-dialog")[0].animation.finish());
+    assert.ok(document.querySelector(".class-card-expansion-morph[data-course-morph='visual'] img"), "the loaded compact photo is retained while the expanded image is absent");
+    assert.equal(target.style.visibility, "hidden");
+
+    await act(async () => {
+      source.querySelector("img").remove();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+
+    assert.equal(document.querySelector(".class-card-expansion-morph[data-course-morph='visual']"), null, "removing the course image drops the stale photo snapshot");
+    assert.equal(target.style.visibility, "", "the expanded gradient is revealed after the image is removed");
+  } finally {
+    restoreRects();
+    await cleanup();
+  }
+});
+
+test("closing mid-morph starts from live shared bounds and styles, then restores the compact source", async () => {
+  const { source, render, cleanup } = setup();
+  setMorphFixture(source);
+  const restoreRects = installMorphRectMocks();
+  let targetName;
+  const details = (close) => h("div", null,
+    h("div", { className: "expanded-class-header" },
+      h("div", { "data-course-morph": "visual" }),
+      h("span", { "data-course-morph": "watermark", style: { opacity: "0.06" } }, "CS"),
+      h("span", { "data-course-morph": "code" }, "CS101"),
+      h("svg", { "data-course-morph": "icon", viewBox: "0 0 24 24", width: 44, height: 44 }, h("path", { d: "M2 3h8v18H2z" })),
+    ),
+    h("div", { className: "expanded-class-body" },
+      h("h2", null, h("span", { "data-course-morph": "name" }, "World History")),
+      h("p", null, h("span", { "data-course-morph": "credits" }, "4 credits")),
+      h("p", null, h("span", { "data-course-morph": "instructor" }, "Dr Ada")),
+      h("button", { onClick: close }, "Close class"),
+    ),
+  );
+  try {
+    source.focus();
+    await render({ children: details });
+    targetName = document.querySelector(".class-card-expansion-content [data-course-morph='name']");
+    assert.equal(targetName.style.visibility, "hidden");
+
+    const nameWrapper = document.querySelector(".class-card-expansion-morph[data-course-morph='name']");
+    const nameClone = nameWrapper.firstElementChild;
+    dialogRectOverride = { left: 50, top: 95, width: 690, height: 600 };
+    nameWrapper.style.left = "108px";
+    nameWrapper.style.top = "221px";
+    nameWrapper.style.width = "240px";
+    nameWrapper.style.height = "27px";
+    nameClone.style.fontSize = "19px";
+    await act(async () => document.querySelector(".class-card-expansion-content button").click());
+
+    const callsForName = calls.filter((call) => call.element === nameWrapper);
+    const closeGeometry = callsForName.at(-1);
+    assert.equal(callsForName.length, 2, "the same shared node reverses instead of being replaced");
+    assert.equal(closeGeometry.frames.length, 31);
+    assert.equal(closeGeometry.frames[0].width, "240px");
+    assert.equal(closeGeometry.frames[0].height, "27px");
+    assert.equal(closeGeometry.frames.at(-1).width, "180px");
+    assert.equal(nameClone.style.fontSize, "19px", "cancelling opening retains its live text size");
+    const styleReversal = calls.filter((call) => call.element === nameClone).at(-1);
+    assert.equal(styleReversal.frames.length, 31);
+    assert.equal(styleReversal.frames[0].fontSize, "19px");
+    assert.equal(styleReversal.frames[0]["font-size"], undefined, "WAAPI receives its supported property names");
+    assert.equal(source.style.visibility, "hidden");
+    const exit = callsFor(".class-card-expansion-dialog").at(-1);
+    await act(async () => exit.animation.finish());
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+    assert.equal(document.querySelector(".class-card-expansion-dialog"), null);
+  } finally {
+    restoreRects();
+    await cleanup();
+  }
+  assert.equal(source.style.visibility, "visible");
+  assert.equal(source.style.getPropertyPriority("visibility"), "important");
+  assert.equal(targetName.style.visibility, "", "unmount restores expanded target visibility");
 });
 
 test("a closing resize captures the live appearance and retargets to the source's latest style", async () => {
@@ -363,10 +767,14 @@ test("close reverses from the live dialog rectangle, restores exact source style
     });
     const details = document.querySelector(".class-card-expansion-content");
     const fade = callsFor(".class-card-expansion-content").at(-1);
-    assert.equal(fade.options.duration, 220);
-    assert.equal(fade.options.easing, "ease-out");
+    const previewFade = callsFor(".class-card-expansion-preview").at(-1);
+    assert.equal(fade.options.duration, COURSE_EXPANSION_CONTENT_DURATION_MS);
+    assert.equal(fade.options.easing, "linear");
     await act(async () => fade.animation.finish());
     assert.equal(details.style.opacity, "0");
+    await act(async () => previewFade.animation.finish());
+    assert.equal(document.querySelector(".class-card-expansion-preview").style.opacity, "1");
+    assert.equal(document.querySelector(".class-card-expansion-preview").style.filter, "none");
     assert.equal(exit.animation.cancelled, false);
     assert.equal(document.querySelector(".class-card-expansion-dialog"), exit.element);
     await act(async () => exit.animation.finish());
@@ -394,17 +802,30 @@ test("closing during the reveal continues from the visible content instead of fl
     const content = document.querySelector(".class-card-expansion-content");
     const preview = document.querySelector(".class-card-expansion-preview");
     content.style.opacity = "0.45";
-    content.style.filter = getWidgetResizeContentFilter(4);
+    content.style.filter = "blur(4px)";
     preview.style.opacity = "0.55";
-    preview.style.filter = getWidgetResizeContentFilter(3);
+    preview.style.filter = "blur(3px)";
     await act(async () => document.querySelector(".test-class-details button").click());
     const contentFade = callsFor(".class-card-expansion-content").at(-1);
     const previewFade = callsFor(".class-card-expansion-preview").at(-1);
-    assert.deepEqual(contentFade.frames[0], { opacity: "0.45", filter: getWidgetResizeContentFilter(4) });
-    assert.deepEqual(previewFade.frames[0], { opacity: "0.55", filter: getWidgetResizeContentFilter(3) });
+    assert.deepEqual(contentFade.frames[0], { offset: 0, opacity: "0.45", easing: "ease-out" });
+    assert.deepEqual(contentFade.frames[1], { offset: COURSE_EXPANSION_CONTENT_FADE_OUT_END_MS / COURSE_EXPANSION_CONTENT_DURATION_MS, opacity: 0 });
+    assert.deepEqual(previewFade.frames[0], { offset: 0, opacity: "0.55" });
+    assert.deepEqual(previewFade.frames[1], { offset: COURSE_EXPANSION_CONTENT_FADE_IN_START_MS / COURSE_EXPANSION_CONTENT_DURATION_MS, opacity: "0.55", easing: "ease-out" });
+    assert.equal(contentFade.frames[1].opacity, 0, "details fade out quickly as the source content returns");
+    assert.equal(contentFade.frames.some((frame) => "filter" in frame), false, "closing details use opacity only");
+    assert.equal(previewFade.frames.some((frame) => "filter" in frame), false, "closing preview uses opacity only");
+    assert.equal(previewFade.frames.at(-1).opacity, 1);
+    assert.equal(contentFade.options.easing, "linear");
+    assert.equal(previewFade.options.easing, "linear");
     assert.equal(content.style.opacity, "0.45");
     assert.equal(preview.style.opacity, "0.55");
     assert.equal(callsFor(".class-card-expansion-dialog").at(-1).options.fill, "both");
+    await act(async () => contentFade.animation.finish());
+    await act(async () => previewFade.animation.finish());
+    assert.equal(content.style.opacity, "0");
+    assert.equal(preview.style.opacity, "1");
+    assert.equal(preview.style.filter, "none");
   } finally {
     await cleanup();
   }

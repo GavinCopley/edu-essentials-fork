@@ -1707,7 +1707,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
                 const courseAssignments = assignments.filter((assignment) => assignment.courseId === course.id && assignment.status !== "done");
                 return <button key={course.id} className="class-card" data-course-card-id={course.id} aria-haspopup="dialog" aria-expanded={selectedClass?.id === course.id} onClick={() => setSelectedClass(course)}>
                   {renderClassVisual(course)}
-                  <div className="class-card-body"><div><h3>{course.name}</h3><p>{course.instructor} · {course.credits} credits</p></div><div className="class-statuses"><span className="status-overdue"><AlertOctagon size={14} />{courseAssignments.filter((item) => item.status === "overdue").length}<small>overdue</small></span><span className="status-today"><Clock3 size={14} />{courseAssignments.filter((item) => item.status === "today").length}<small>today</small></span><span className="status-later"><Circle size={14} />{courseAssignments.filter((item) => item.status === "later").length}<small>later</small></span></div></div>
+                  <div className="class-card-body"><div><h3 data-course-morph="name">{course.name}</h3><p><span data-course-morph="instructor">{course.instructor}</span> · <span data-course-morph="credits">{course.credits} credits</span></p></div><div className="class-statuses"><span className="status-overdue"><AlertOctagon size={14} />{courseAssignments.filter((item) => item.status === "overdue").length}<small>overdue</small></span><span className="status-today"><Clock3 size={14} />{courseAssignments.filter((item) => item.status === "today").length}<small>today</small></span><span className="status-later"><Circle size={14} />{courseAssignments.filter((item) => item.status === "later").length}<small>later</small></span></div></div>
                 </button>;
               })}
             </div>
@@ -1816,9 +1816,11 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }
 
   function renderClassVisual(course: Course, close?: () => void) {
-    return <div className={`class-card-visual${close ? " expanded-class-header" : ""}`} style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 18%, white))` }}>
-      {fileStore.files.filter((file) => file.course_id === course.id && file.kind === "class-image" && file.state === "ready" && !file.trashed_at).sort((first, second) => second.created_at.localeCompare(first.created_at)).slice(0, 1).map((file) => <PrivateImage key={file.id} file={file} store={fileStore} />)}
-      <span className="course-watermark" aria-hidden="true">{course.initials}</span><span className="course-pill" style={{ color: course.color }}>{course.code}</span><BookOpen size={close ? 44 : 34} style={{ color: course.color }} aria-hidden="true" />
+    return <div className={`class-card-visual${close ? " expanded-class-header" : ""}`}>
+      <div className="class-card-media" data-course-morph="visual" aria-hidden="true" style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 18%, white))` }}>
+        {fileStore.files.filter((file) => file.course_id === course.id && file.kind === "class-image" && file.state === "ready" && !file.trashed_at).sort((first, second) => second.created_at.localeCompare(first.created_at)).slice(0, 1).map((file) => <PrivateImage key={file.id} file={file} store={fileStore} />)}
+      </div>
+      <span className="course-watermark" data-course-morph="watermark" aria-hidden="true">{course.initials}</span><span className="course-pill" data-course-morph="code" style={{ color: course.color }}>{course.code}</span><BookOpen data-course-morph="icon" size={close ? 44 : 34} style={{ color: course.color }} aria-hidden="true" />
       {close && <button className="secondary-button" onClick={close}>Close class <X size={15} /></button>}
     </div>;
   }
@@ -1830,11 +1832,11 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     return <ClassCardExpansion key={`${initialProfile.id}:${course.id}`} courseId={course.id} onClose={() => setSelectedClass(null)} suspended={!!(selectedAssignment || fileDialog || filePreview || nativeDocumentDialog || syllabusAttachment || syllabusTextCourseId || studyOpen || editor || syllabusId)}>{(close) => <>
       {renderClassVisual(course, close)}
       <div className="expanded-class-body">
-        <div className="expanded-class-heading"><div><h2>{course.code} · {course.name}</h2><p>{course.credits} credits · {course.room || "No location entered"}</p></div></div>
+        <div className="expanded-class-heading"><div><h2><span className="expanded-class-code">{course.code} · </span><span data-course-morph="name">{course.name}</span></h2><p><span data-course-morph="credits">{course.credits} credits</span> · {course.room || "No location entered"}</p></div></div>
         <div className="expanded-class-actions"><button className="primary-button" onClick={() => { setEditor({ course, details }); setSelectedClass(null); }}><Pencil size={15} />Edit class</button><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); setSelectedClass(null); navigate("calendar"); }}><CalendarDays size={15} />View schedule</button><button className="secondary-button" onClick={() => { setSelectedClass(null); setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } }); }}><Plus size={15} />Add assignment</button></div>
         <section className="expanded-class-section expanded-class-progress"><h3>Progress</h3><p>{durationLabel(studySeconds)} recorded study · {items.filter((assignment) => assignment.status === "done").length} / {items.length} assignments complete</p><p>{average ? `Grade: ${average.value.toFixed(2)} / ${average.max}` : "No matching grade entered"} · {activeTerm || "Unspecified term"}</p><button className="text-button" onClick={() => { setSelectedClass(null); setStudyOpen(true); }}>Study history & grades <ArrowRight size={14} /></button></section>
         <div className="expanded-class-grid">
-          <section className="expanded-class-section"><h3>Instructor</h3><p>{course.instructor || "No instructor entered"}</p><h3>Office hours</h3><p>{details.officeHours || "No office hours entered"}</p></section>
+          <section className="expanded-class-section"><h3>Instructor</h3><p>{course.instructor ? <span data-course-morph="instructor">{course.instructor}</span> : "No instructor entered"}</p><h3>Office hours</h3><p>{details.officeHours || "No office hours entered"}</p></section>
           <section className="expanded-class-section"><h3>Schedule</h3>{details.meetings.length ? details.meetings.map((meeting) => <p key={meeting.id}>{meeting.days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ")} · {meeting.start}–{meeting.end} · {meeting.location || course.room}<br />{dateLabel(meeting.from)} – {dateLabel(meeting.until)}</p>) : <p>No recurring meetings entered.</p>}</section>
         </div>
         <section className="expanded-class-section"><h3>Assignments</h3>{renderAssignmentTable(items, true)}</section>
