@@ -102,8 +102,8 @@ import { experimentalData, type ExperimentalDensity } from "../lib/experimental-
 import OnboardingFlow from "./onboarding-flow";
 import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspace-codec";
 import ProfileEditor from "./profile-editor";
-import AcademicAssistant from "./academic-assistant";
-import DashboardAiSummary from "./dashboard-ai-summary";
+import AcademicAssistant, { type AssistantPrompt } from "./academic-assistant";
+import DashboardStudyBrief from "./dashboard-study-brief";
 import ClassCardExpansion from "./class-card-expansion";
 import { dashboardFocus } from "../lib/dashboard-focus";
 import SaveToast from "./save-toast";
@@ -426,6 +426,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState("");
   const [studyOpen, setStudyOpen] = useState(false);
   const [aiApplying, setAiApplying] = useState(false);
+  const [assistantPrompt, setAssistantPrompt] = useState<(AssistantPrompt & { profileId: string }) | null>(null);
   const aiApplyLock = useRef(false);
   const [notes, setNotes] = useState("");
   const noteFocusRef = useRef<string | null>(null);
@@ -1227,7 +1228,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         {saveState.ready && page === "calendar" && renderCalendar()}
         {saveState.ready && page === "search" && renderSearch()}
         {(saveState.ready || organizationState) && (page === "files" || organizationState) && <div hidden={page !== "files"}>{renderFiles()}</div>}
-        {page === "assistant" && <AcademicAssistant profileId={initialProfile.id} prepare={prepareAssistant} apply={applyAssistant} experimental={!!experimentalMode} />}
+        {page === "assistant" && <AcademicAssistant key={initialProfile.id} profileId={initialProfile.id} prepare={prepareAssistant} apply={applyAssistant} experimental={!!experimentalMode} initialPrompt={assistantPrompt?.profileId === initialProfile.id ? assistantPrompt : null} onPromptConsumed={(id) => setAssistantPrompt((current) => current?.id === id ? null : current)} />}
         {saveState.ready && <div key={reloadAttempt} hidden={page !== "settings"}>{renderSettings()}</div>}
       </main>
 
@@ -1683,14 +1684,29 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     const focusAssignments = dashboardFocus(assignments);
     return (
       <div className="page dashboard-page">
-        <section className="dashboard-summary" aria-labelledby="dashboard-summary-title">
-          <DashboardAiSummary profileId={initialProfile.id} prepare={prepareAssistant} experimental={!!experimentalMode} snapshotKey={canonicalJson({ courses, assignments: storedAssignments, manualEvents, study, courseDetails: extraData.courseDetails, files: fileStore.files, today, timezone: profile.timezone })} onOpenAssistant={() => navigate("assistant")} />
-          <div className="dashboard-focus">
-            <div className="dashboard-focus-heading"><span className="dashboard-eyebrow">YOUR NEXT MOVES</span><span>{focusAssignments.length} to do</span></div>
-            {focusAssignments.length ? <div className="dashboard-focus-list">{focusAssignments.slice(0, 3).map((assignment, index) => <button key={assignment.id} className="dashboard-focus-item" onClick={() => setSelectedAssignment(assignment)}><span className="dashboard-focus-number">{String(index + 1).padStart(2, "0")}</span><span className="dashboard-focus-label"><strong>{assignment.title}</strong><small>{courseFor(courses, assignment.courseId).code} · {assignment.dateKey ? assignment.due : "No due date"}</small></span><StatusBadge status={assignment.status} compact /><ChevronRight size={16} /></button>)}</div> : <div className="dashboard-focus-empty"><CheckCircle2 size={28} /><strong>{courses.length ? "You’re all caught up." : "Let’s get your semester set up."}</strong><p>{courses.length ? "No outstanding assignments. Make room for a little review—or a break." : "Add a class or import a syllabus to see your next steps here."}</p><button className="text-button" onClick={courses.length ? newAssignment : () => setAddClassOpen(true)}>{courses.length ? "Add an assignment" : "Add your first class"}<ArrowRight size={14} /></button></div>}
-            <div className="dashboard-focus-counts"><span><i className="dashboard-dot overdue" />{overdueAssignments.length} overdue</span><span><i className="dashboard-dot today" />{todayAssignments.length} due today</span><span><i className="dashboard-dot done" />{weeklyCompleted} done this week</span></div>
-          </div>
-        </section>
+        <DashboardStudyBrief
+          focusAssignments={focusAssignments}
+          overdueCount={overdueAssignments.length}
+          dueTodayCount={todayAssignments.length}
+          completedThisWeek={weeklyCompleted}
+          courseCount={courses.length}
+          courseCodeFor={(courseId) => courseFor(courses, courseId).code}
+          renderStatusBadge={(status) => <StatusBadge status={status} compact />}
+          onSelectAssignment={setSelectedAssignment}
+          onAddAssignment={newAssignment}
+          onAddClass={() => setAddClassOpen(true)}
+          onOpenAssistant={(question) => {
+            if (nativeDocumentDialog) { navigate("assistant"); return; }
+            setAssistantPrompt(question?.trim() ? { id: uid("assistant-prompt"), profileId: initialProfile.id, question: question.trim(), send: false } : null);
+            navigate("assistant");
+          }}
+          onAskAssistant={(question) => {
+            if (nativeDocumentDialog) { navigate("assistant"); return false; }
+            setAssistantPrompt({ id: uid("assistant-prompt"), profileId: initialProfile.id, question, send: true });
+            navigate("assistant");
+          }}
+          reducedMotion={profile.preferences.reducedMotion}
+        />
         <section className="dashboard-classes" aria-labelledby="dashboard-classes-title">
           <div className="section-title-row dashboard-classes-heading">
             <h2 id="dashboard-classes-title">Your classes</h2>

@@ -11,16 +11,18 @@ type Message = { id: string; question: string; status: string; error?: string; c
 type Source = { id: string; label: string; enabled: boolean; state: string; error: string | null };
 type Proposal = { id: string; status: string; preview: { changes: Change[]; warnings: string[]; timezone: string; courseLabels?: Record<string, string> }; receipt?: { appliedAt: string }; expires_at: string };
 type Access = { eligible: boolean; enabled?: boolean; mode: string };
-type Props = { profileId: string; prepare: () => Promise<void>; apply: (id: string) => Promise<void>; experimental: boolean };
+export type AssistantPrompt = { id: string; question: string; send: boolean };
+type Props = { profileId: string; prepare: () => Promise<void>; apply: (id: string) => Promise<void>; experimental: boolean; initialPrompt?: AssistantPrompt | null; onPromptConsumed?: (id: string) => void };
 
 function changeSummary(value: Change["after"], labels: Record<string, string> = {}) {
   return [value.title, `Class: ${value.courseId ? labels[value.courseId] ?? value.courseId : "Personal"}`, `Date: ${value.dateKey}`, "time" in value ? `Time: ${value.time || "All day"}\nDuration: ${value.durationMinutes ?? "Unknown"}${value.durationMinutes ? " minutes" : ""}` : `Due time: ${value.dueTime || "Not specified"}\nStatus: ${value.status}\nProgress: ${value.progress}%`, value.description ? `Notes: ${value.description}` : ""].filter(Boolean).join("\n");
 }
 
-export default function AcademicAssistant({ profileId, prepare, apply, experimental }: Props) {
+export default function AcademicAssistant({ profileId, prepare, apply, experimental, initialPrompt, onPromptConsumed }: Props) {
   const [access, setAccess] = useState<Access | null>(null), [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState(""), [messages, setMessages] = useState<Message[]>([]);
-  const [draft, setDraft] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const [draft, setDraft] = useState(initialPrompt?.question ?? ""), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const consumedPrompt = useRef<string | null>(null);
   const [adult, setAdult] = useState(false), [synthetic, setSynthetic] = useState(false);
   const [sources, setSources] = useState<Source[]>([]), [sourceOpen, setSourceOpen] = useState(false);
   const [citation, setCitation] = useState<(Citation & { historical?: boolean; unavailable?: boolean; message?: string }) | null>(null);
@@ -43,22 +45,33 @@ export default function AcademicAssistant({ profileId, prepare, apply, experimen
     const timer = setTimeout(() => { void loadMessages(conversationId).catch((e) => setError(e.message)); }, 5000);
     return () => clearTimeout(timer);
   }, [running, conversationId, busy, messages, loadMessages]);
-  const action = async (task: () => Promise<void>) => {
+  const action = useCallback(async (task: () => Promise<void>) => {
     setError(""); setBusy(true);
     try { await task(); } catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : "Assistant request failed."); }
     finally { if (mounted.current) setBusy(false); }
-  };
-  const send = () => action(async () => {
-    if (!draft.trim() || experimental) return;
+  }, []);
+  const send = useCallback((question = draft) => {
+    if (!question.trim() || experimental || !access?.eligible || !access.enabled || busy || running) return;
+    return action(async () => {
     await prepare();
+    if (!mounted.current) return;
     let id = conversationId;
-    if (!id) { const created = await api<Conversation>("conversations", { method: "POST", body: JSON.stringify({ title: draft.trim().slice(0, 100) }) }); id = created.id; setConversationId(id); await loadConversations(); }
-    const requestId = crypto.randomUUID(), question = draft;
+    if (!id) { const created = await api<Conversation>("conversations", { method: "POST", body: JSON.stringify({ title: question.trim().slice(0, 100) }) }); id = created.id; setConversationId(id); await loadConversations(); }
+    if (!mounted.current) return;
+    const requestId = crypto.randomUUID();
     setMessages((old) => [...old, { id: requestId, question, status: "running", created_at: new Date().toISOString() }]); setDraft("");
     controller.current = new AbortController();
     try { await api("messages", { method: "POST", body: JSON.stringify({ conversationId: id, requestId, message: question }), signal: controller.current.signal }); }
     finally { if (mounted.current) await loadMessages(id); }
-  });
+    });
+  }, [action, draft, experimental, access, busy, running, prepare, conversationId, api, loadConversations, loadMessages]);
+  useEffect(() => {
+    if (!initialPrompt || consumedPrompt.current === initialPrompt.id) return;
+    if (initialPrompt.send && (!access?.eligible || !access.enabled || experimental || busy || running)) return;
+    consumedPrompt.current = initialPrompt.id;
+    onPromptConsumed?.(initialPrompt.id);
+    if (initialPrompt.send) void send(initialPrompt.question);
+  }, [initialPrompt, onPromptConsumed, access, experimental, busy, running, send]);
   const openProposal = (id: string) => action(async () => { setProposal(await api<Proposal>(`proposals?id=${id}`)); });
 
   return <div className="page assistant-page">
