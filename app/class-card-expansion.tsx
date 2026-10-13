@@ -31,6 +31,16 @@ type SourceSnapshot = {
   inert: SavedAttribute;
 };
 
+const visualProperties = [
+  "borderTopLeftRadius",
+  "borderTopRightRadius",
+  "borderBottomRightRadius",
+  "borderBottomLeftRadius",
+  "boxShadow",
+] as const;
+type VisualProperty = typeof visualProperties[number];
+type VisualAppearance = Record<VisualProperty, string>;
+
 const focusableSelector = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex]:not([tabindex='-1'])";
 
 function reducedMotion() {
@@ -57,6 +67,21 @@ function applyRect(element: HTMLElement, rect: WidgetMotionRect) {
   element.style.top = `${rect.top}px`;
   element.style.width = `${rect.width}px`;
   element.style.height = `${rect.height}px`;
+}
+
+function readVisualAppearance(element: HTMLElement): VisualAppearance {
+  const style = window.getComputedStyle(element);
+  return {
+    borderTopLeftRadius: style.borderTopLeftRadius || "0px",
+    borderTopRightRadius: style.borderTopRightRadius || "0px",
+    borderBottomRightRadius: style.borderBottomRightRadius || "0px",
+    borderBottomLeftRadius: style.borderBottomLeftRadius || "0px",
+    boxShadow: style.boxShadow || "none",
+  };
+}
+
+function applyVisualAppearance(element: HTMLElement, appearance: VisualAppearance) {
+  for (const property of visualProperties) element.style[property] = appearance[property];
 }
 
 function hasArea(rect: WidgetMotionRect): boolean {
@@ -155,6 +180,9 @@ function makeStaticPreview(source: HTMLElement): HTMLElement {
   staticRoot.style.transition = "none";
   staticRoot.style.animation = "none";
   staticRoot.style.transform = "none";
+  staticRoot.style.boxShadow = "none";
+  staticRoot.style.borderWidth = "0";
+  staticRoot.style.borderRadius = "inherit";
   return staticRoot;
 }
 
@@ -235,6 +263,8 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       : triggerRect && isVisibleAnchor(triggerRect) ? triggerRect : null;
     const destination = getExpansionRect(anchor);
     const startRect = anchor ?? destination;
+    const expandedAppearance = readVisualAppearance(expansionDialog);
+    const sourceAppearance = source && anchor ? readVisualAppearance(source) : null;
 
     if (source) {
       sourceSnapshot = {
@@ -252,6 +282,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     bodyOverflow = { value: document.body.style.getPropertyValue("overflow"), priority: document.body.style.getPropertyPriority("overflow") };
     document.body.style.setProperty("overflow", "hidden");
     applyRect(expansionDialog, destination);
+    applyVisualAppearance(expansionDialog, expandedAppearance);
     previewLayer.hidden = !source || !anchor;
     const canAnimate = !reducedMotion() && typeof expansionDialog.animate === "function";
 
@@ -273,14 +304,25 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       contentAnimations.clear();
     };
 
-    const animateShape = (from: WidgetMotionRect, to: WidgetMotionRect, onFinish?: () => void) => {
+    const animateShape = (
+      from: WidgetMotionRect,
+      to: WidgetMotionRect,
+      onFinish?: () => void,
+      fromAppearance?: VisualAppearance,
+      toAppearance: VisualAppearance = expandedAppearance,
+    ) => {
+      const liveAppearance = fromAppearance ?? readVisualAppearance(expansionDialog);
       cancelShape();
       applyRect(expansionDialog, to);
+      applyVisualAppearance(expansionDialog, toAppearance);
       if (!canAnimate || typeof expansionDialog.animate !== "function") {
         onFinish?.();
         return;
       }
-      const animation = expansionDialog.animate(createWidgetResizeSettleFrames(from, to, 11), {
+      const frames = createWidgetResizeSettleFrames(from, to, 11);
+      Object.assign(frames[0], liveAppearance);
+      Object.assign(frames.at(-1)!, toAppearance);
+      const animation = expansionDialog.animate(frames, {
         duration: WIDGET_RESIZE_SETTLE_DURATION_MS,
         easing: WIDGET_RESIZE_SETTLE_EASING,
         fill: "both",
@@ -451,7 +493,9 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       const previewStyle = window.getComputedStyle(previewLayer);
       const previewOpacity = previewLayer.hidden ? "0" : previewStyle.opacity;
       const previewFilter = previewLayer.hidden ? getWidgetResizeContentFilter(8) : previewStyle.filter;
-      cancelShape();
+      const sourceAppearance = sourceRef.current?.isConnected
+        ? readVisualAppearance(sourceRef.current)
+        : expandedAppearance;
       cancelContent();
       expansionDialog.dataset.closing = "true";
       previewLayer.hidden = !sourceRef.current;
@@ -477,7 +521,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
         detailContent.style.opacity = "0";
         detailContent.style.filter = blurFilter;
       });
-      animateShape(from, to, finishClose);
+      animateShape(from, to, finishClose, undefined, sourceAppearance);
     }
 
     function currentExpansionRect(): WidgetMotionRect {
@@ -494,6 +538,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       // Follow the sidebar transition directly so the dialog cannot lag behind its edge.
       cancelShape();
       applyRect(expansionDialog, currentExpansionRect());
+      applyVisualAppearance(expansionDialog, expandedAppearance);
     }
 
     function handleResize() {
@@ -506,13 +551,17 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
           finishClose();
           return;
         }
-        animateShape(from, to, finishClose);
+        const sourceAppearance = sourceRef.current?.isConnected
+          ? readVisualAppearance(sourceRef.current)
+          : expandedAppearance;
+        animateShape(from, to, finishClose, undefined, sourceAppearance);
         return;
       }
       const to = currentExpansionRect();
       if (!canAnimate) {
         cancelShape();
         applyRect(expansionDialog, to);
+        applyVisualAppearance(expansionDialog, expandedAppearance);
         return;
       }
       animateShape(from, to);
@@ -527,8 +576,12 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
         sidebarObserver.observe(sidebar);
       }
     }
-    if (canAnimate && anchor) animateShape(startRect, destination);
-    else applyRect(expansionDialog, destination);
+    if (canAnimate && anchor) {
+      animateShape(startRect, destination, undefined, sourceAppearance ?? undefined);
+    } else {
+      applyRect(expansionDialog, destination);
+      applyVisualAppearance(expansionDialog, expandedAppearance);
+    }
     revealContent();
     return release;
   }, [courseId, visible]);

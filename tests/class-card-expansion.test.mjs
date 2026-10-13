@@ -34,9 +34,9 @@ function rect(value) {
 
 function sourceMarkup(courseId = "course[1]", withSource = true) {
   const source = withSource
-    ? `<button id="course-source" data-course-card-id="${courseId}" aria-hidden="false" style="visibility: visible !important"><span id="source-label" tabindex="0" contenteditable="true">Course visual</span></button>`
+    ? `<button id="course-source" data-course-card-id="${courseId}" aria-hidden="false" style="visibility: visible !important; border-top-left-radius: 0px; border-top-right-radius: 0px; border-bottom-right-radius: 0px; border-bottom-left-radius: 0px; box-shadow: none"><span id="source-label" tabindex="0" contenteditable="true">Course visual</span></button>`
     : "";
-  document.body.innerHTML = `<main class="reference-ui"><aside id="workspace-sidebar" class="sidebar"></aside>${source}<button id="entry-trigger">Open class</button><div class="mobile-bottom-nav"></div><div id="app-root"></div></main>`;
+  document.body.innerHTML = `<style>.class-card-expansion-dialog { border-top-left-radius: 24px; border-top-right-radius: 24px; border-bottom-right-radius: 24px; border-bottom-left-radius: 24px; box-shadow: 0 22px 70px rgba(21, 27, 45, 0.2); }</style><main class="reference-ui"><aside id="workspace-sidebar" class="sidebar"></aside>${source}<button id="entry-trigger">Open class</button><div class="mobile-bottom-nav"></div><div id="app-root"></div></main>`;
   const trigger = document.getElementById("entry-trigger");
   const root = createRoot(document.getElementById("app-root"));
   return { source: document.getElementById("course-source"), trigger, root, host: document.getElementById("app-root") };
@@ -115,6 +115,27 @@ function callsFor(selector) {
   return calls.filter((call) => call.element.matches(selector));
 }
 
+const appearanceProperties = [
+  "borderTopLeftRadius",
+  "borderTopRightRadius",
+  "borderBottomRightRadius",
+  "borderBottomLeftRadius",
+  "boxShadow",
+];
+
+function appearanceOf(element) {
+  const style = window.getComputedStyle(element);
+  return Object.fromEntries(appearanceProperties.map((property) => [property, style[property]]));
+}
+
+function frameAppearance(frame) {
+  return Object.fromEntries(appearanceProperties.map((property) => [property, frame[property]]));
+}
+
+function geometryFrames(frames) {
+  return frames.map((frame) => Object.fromEntries(Object.entries(frame).filter(([property]) => !appearanceProperties.includes(property))));
+}
+
 function installResizeObserverStub() {
   const original = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
   const observers = [];
@@ -148,6 +169,7 @@ test("expansion animates from the matched source into a bounded in-place modal a
     await render();
     const backdrop = document.querySelector(".class-card-expansion-backdrop");
     const dialog = backdrop.querySelector("[role='dialog']");
+    const expandedAppearance = appearanceOf(dialog);
     const shape = callsFor(".class-card-expansion-dialog")[0];
     const preview = document.querySelector(".class-card-expansion-preview");
 
@@ -159,13 +181,14 @@ test("expansion animates from the matched source into a bounded in-place modal a
     assert.equal(dialog.style.width, "840px");
     assert.equal(dialog.style.height, "740px");
     assert.equal(shape.frames.length, 31);
-    assert.deepEqual(shape.frames, createWidgetResizeSettleFrames(sourceRect, { left: 18, top: 60, width: 840, height: 740 }, 11));
+    assert.deepEqual(geometryFrames(shape.frames), createWidgetResizeSettleFrames(sourceRect, { left: 18, top: 60, width: 840, height: 740 }, 11));
     assert.deepEqual(shape.frames[0], {
       offset: 0,
       width: "260px",
       height: "200px",
       transform: "translate(12px, 540px)",
       transformOrigin: "top left",
+      ...appearanceOf(source),
     });
     assert.deepEqual(shape.frames.at(-1), {
       offset: 1,
@@ -173,6 +196,7 @@ test("expansion animates from the matched source into a bounded in-place modal a
       height: "740px",
       transform: "translate(0px, 0px)",
       transformOrigin: "top left",
+      ...expandedAppearance,
     });
     assert.equal(shape.options.duration, 420);
     assert.equal(shape.options.easing, "linear");
@@ -210,6 +234,95 @@ test("expansion animates from the matched source into a bounded in-place modal a
   }
 });
 
+test("opening animates asymmetric source corners and shadow while the preview avoids double painting", async () => {
+  const { source, render, cleanup } = setup();
+  const sourceAppearance = {
+    borderTopLeftRadius: "6px",
+    borderTopRightRadius: "12px 20px",
+    borderBottomRightRadius: "9px",
+    borderBottomLeftRadius: "18px 24px",
+    boxShadow: "0 3px 11px rgba(10, 20, 30, 0.4)",
+  };
+  for (const [property, value] of Object.entries(sourceAppearance)) source.style[property] = value;
+  try {
+    source.focus();
+    await render();
+    const dialog = document.querySelector(".class-card-expansion-dialog");
+    const previewRoot = document.querySelector(".class-card-expansion-preview").firstElementChild;
+    const shape = callsFor(".class-card-expansion-dialog")[0];
+    const expandedAppearance = appearanceOf(dialog);
+
+    assert.deepEqual(frameAppearance(shape.frames[0]), appearanceOf(source));
+    assert.deepEqual(frameAppearance(shape.frames.at(-1)), expandedAppearance);
+    assert.equal(shape.frames[0].borderTopRightRadius, "12px 20px");
+    assert.equal(shape.frames[0].borderBottomLeftRadius, "18px 24px");
+    assert.equal(shape.frames.at(-1).borderTopLeftRadius, "24px");
+    assert.equal(previewRoot.style.boxShadow, "none");
+    assert.equal(previewRoot.style.borderWidth, "0px");
+    assert.equal(previewRoot.style.borderRadius, "inherit");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a closing resize captures the live appearance and retargets to the source's latest style", async () => {
+  const { source, render, cleanup } = setup();
+  const initialSourceAppearance = {
+    borderTopLeftRadius: "6px",
+    borderTopRightRadius: "12px 20px",
+    borderBottomRightRadius: "9px",
+    borderBottomLeftRadius: "18px 24px",
+    boxShadow: "0 3px 11px rgba(10, 20, 30, 0.4)",
+  };
+  const currentAppearance = {
+    borderTopLeftRadius: "13px",
+    borderTopRightRadius: "15px 21px",
+    borderBottomRightRadius: "17px",
+    borderBottomLeftRadius: "19px 25px",
+    boxShadow: "0 6px 16px rgba(1, 2, 3, 0.5)",
+  };
+  const resizedSourceAppearance = {
+    borderTopLeftRadius: "3px",
+    borderTopRightRadius: "7px 11px",
+    borderBottomRightRadius: "14px",
+    borderBottomLeftRadius: "21px 27px",
+    boxShadow: "0 1px 5px rgba(40, 50, 60, 0.35)",
+  };
+  for (const [property, value] of Object.entries(initialSourceAppearance)) source.style[property] = value;
+  try {
+    source.focus();
+    await render();
+    const dialog = document.querySelector(".class-card-expansion-dialog");
+    const expandedAppearance = appearanceOf(dialog);
+    const closeButton = [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Close class"));
+    await act(async () => closeButton.click());
+    const firstExit = callsFor(".class-card-expansion-dialog").at(-1);
+    assert.deepEqual(frameAppearance(firstExit.frames[0]), expandedAppearance);
+    assert.deepEqual(frameAppearance(firstExit.frames.at(-1)), appearanceOf(source));
+
+    for (const [property, value] of Object.entries(currentAppearance)) dialog.style[property] = value;
+    const capturedAppearance = appearanceOf(dialog);
+    for (const [property, value] of Object.entries(resizedSourceAppearance)) source.style[property] = value;
+    await act(async () => window.dispatchEvent(new window.Event("resize")));
+
+    const retargetedExit = callsFor(".class-card-expansion-dialog").at(-1);
+    assert.equal(firstExit.animation.cancelled, true);
+    assert.deepEqual(frameAppearance(retargetedExit.frames[0]), capturedAppearance);
+    assert.deepEqual(frameAppearance(retargetedExit.frames.at(-1)), appearanceOf(source));
+    assert.deepEqual(appearanceOf(dialog), appearanceOf(source), "the inline end style matches the live source target");
+
+    await act(async () => retargetedExit.animation.finish());
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+    assert.equal(document.querySelector(".class-card-expansion-dialog"), null);
+    assert.equal(source.style.getPropertyValue("visibility"), "visible");
+    assert.equal(source.style.getPropertyPriority("visibility"), "important");
+    assert.equal(source.getAttribute("aria-hidden"), "false");
+    assert.equal(source.hasAttribute("inert"), false);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("close reverses from the live dialog rectangle, restores exact source styles, and returns focus", async () => {
   const { source, render, cleanup } = setup();
   const sourceContainer = source.parentElement;
@@ -221,6 +334,7 @@ test("close reverses from the live dialog rectangle, restores exact source style
       assert.equal(document.querySelector(".class-card-expansion-dialog")?.style.visibility, "hidden");
       window.setTimeout(() => sourceContainer.removeAttribute("inert"), 10);
     } });
+    const expandedAppearance = appearanceOf(document.querySelector(".class-card-expansion-dialog"));
     sourceContainer.setAttribute("inert", "");
     dialogRectOverride = { left: 55, top: 70, width: 710, height: 620 };
     const closeButton = [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Close class"));
@@ -237,6 +351,7 @@ test("close reverses from the live dialog rectangle, restores exact source style
       height: "620px",
       transform: "translate(25px, -530px)",
       transformOrigin: "top left",
+      ...expandedAppearance,
     });
     assert.deepEqual(exit.frames.at(-1), {
       offset: 1,
@@ -244,6 +359,7 @@ test("close reverses from the live dialog rectangle, restores exact source style
       height: "200px",
       transform: "translate(0px, 0px)",
       transformOrigin: "top left",
+      ...appearanceOf(source),
     });
     const details = document.querySelector(".class-card-expansion-content");
     const fade = callsFor(".class-card-expansion-content").at(-1);
