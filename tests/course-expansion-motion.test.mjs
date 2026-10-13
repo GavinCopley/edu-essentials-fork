@@ -45,3 +45,54 @@ test("shell geometry reaches the target with aligned size and translation and a 
   assert.ok(lastWidthStep < (to.width - from.width) * 0.01, "the final frame closes a small remaining width gap");
   assert.ok(lastHeightStep < (to.height - from.height) * 0.01, "the final frame closes a small remaining height gap");
 });
+
+test("detail content stays at its destination world-left while a source-centered shell expands", () => {
+  const { createCourseExpansionHorizontalFrames, getCourseExpansionProgress } = motion;
+  const borderLeft = 1;
+  const positions = [
+    { sourceLeft: 20, destinationLeft: 18, name: "left" },
+    { sourceLeft: 480, destinationLeft: 180, name: "middle" },
+    { sourceLeft: 1060, destinationLeft: 342, name: "right" },
+  ];
+
+  for (const { sourceLeft, destinationLeft, name } of positions) {
+    const from = { left: sourceLeft, top: 500, width: 220, height: 120 };
+    const to = { left: destinationLeft, top: 80, width: 840, height: 740 };
+    const desiredWorldLeft = destinationLeft + borderLeft;
+    const frames = createCourseExpansionHorizontalFrames(from, to, desiredWorldLeft, desiredWorldLeft, borderLeft);
+
+    assert.equal(frames.length, 31);
+    assert.equal(frames[0].transform, `translateX(${destinationLeft - sourceLeft}px)`, `${name} opening starts over the measured destination`);
+    assert.equal(frames.at(-1).transform, "translateX(0px)");
+    for (const frame of frames) {
+      const progress = getCourseExpansionProgress(frame.offset);
+      const parentLeft = from.left + (to.left - from.left) * progress;
+      const detailOffset = Number(frame.transform.match(/^translateX\(([-\d.]+)px\)$/)?.[1]);
+      const renderedWorldLeft = parentLeft + borderLeft + detailOffset;
+      assert.ok(Math.abs(renderedWorldLeft - desiredWorldLeft) < 1e-8, `${name} content remains anchored at its destination`);
+    }
+  }
+});
+
+test("closing keeps the captured detail world-left fixed as the shell returns", () => {
+  const { createCourseExpansionHorizontalFrames } = motion;
+  const from = { left: 215, top: 90, width: 840, height: 740 };
+  const to = { left: 40, top: 610, width: 240, height: 150 };
+  const capturedDetailLeft = 603;
+  const frames = createCourseExpansionHorizontalFrames(from, to, capturedDetailLeft, capturedDetailLeft, 1);
+
+  assert.equal(frames[0].transform, "translateX(387px)");
+  assert.equal(frames.at(-1).transform, "translateX(562px)");
+});
+
+test("resize retargeting starts continuously when the expanded width stays equal", () => {
+  const { createCourseExpansionHorizontalFrames } = motion;
+  const from = { left: 100, top: 80, width: 840, height: 740 };
+  const to = { left: 240, top: 80, width: 840, height: 740 };
+  const capturedDetailLeft = 305;
+  const frames = createCourseExpansionHorizontalFrames(from, to, capturedDetailLeft, to.left + 1, 1);
+
+  assert.equal(from.width, to.width);
+  assert.equal(frames[0].transform, "translateX(204px)", "the first frame uses the captured position and current parent bounds");
+  assert.equal(frames.at(-1).transform, "translateX(0px)", "the retarget settles at the new destination left edge");
+});

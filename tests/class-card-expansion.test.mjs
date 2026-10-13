@@ -14,16 +14,19 @@ Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 })
 const { createElement: h, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { default: ClassCardExpansion } = await import(await clientModule("app/class-card-expansion.tsx"));
-const { createCourseExpansionSettleFrames, getCourseExpansionProgress, COURSE_EXPANSION_CONTENT_DURATION_MS, COURSE_EXPANSION_CONTENT_FADE_IN_START_MS, COURSE_EXPANSION_CONTENT_FADE_OUT_END_MS } = await import(await clientModule("lib/course-expansion-motion.ts"));
+const { createCourseExpansionHorizontalFrames, createCourseExpansionSettleFrames, getCourseExpansionProgress, COURSE_EXPANSION_CONTENT_DURATION_MS, COURSE_EXPANSION_CONTENT_FADE_IN_START_MS, COURSE_EXPANSION_CONTENT_FADE_OUT_END_MS } = await import(await clientModule("lib/course-expansion-motion.ts"));
 
 let systemReduced = false;
 let sourceRect = { left: 30, top: 600, width: 260, height: 200 };
 let triggerRect = { left: 100, top: 450, width: 120, height: 44 };
 let dialogRectOverride = null;
+let detailRectOverride = null;
 let mobileNavRect = null;
 let sidebarRect = null;
 let calls = [];
 let cancelledEvents = [];
+let onTargetMorphMeasure = null;
+let onAnimationCancel = null;
 
 window.matchMedia = () => ({ matches: systemReduced });
 
@@ -45,8 +48,11 @@ function setup({ withSource = true, courseId = "course[1]", reduced = null } = {
   calls = [];
   cancelledEvents = [];
   dialogRectOverride = null;
+  detailRectOverride = null;
   mobileNavRect = null;
   sidebarRect = null;
+  onTargetMorphMeasure = null;
+  onAnimationCancel = null;
   systemReduced = reduced === "media";
   document.documentElement.dataset.motion = reduced === "attribute" ? "reduced" : "full";
   document.body.style.setProperty("overflow", "clip", "important");
@@ -68,6 +74,7 @@ function setup({ withSource = true, courseId = "course[1]", reduced = null } = {
         height: Number.parseFloat(this.style.height) || 0,
       });
     }
+    if (this.classList?.contains("class-card-expansion-content") && detailRectOverride) return rect(detailRectOverride);
     return originalRect.call(this);
   };
   window.HTMLElement.prototype.animate = function (frames, options) {
@@ -78,6 +85,7 @@ function setup({ withSource = true, courseId = "course[1]", reduced = null } = {
       cancel() {
         if (this.cancelled) return;
         this.cancelled = true;
+        onAnimationCancel?.(this);
         cancelledEvents.push(this);
         this.oncancel?.();
       },
@@ -153,7 +161,11 @@ function installMorphRectMocks() {
     const key = element.getAttribute?.("data-course-morph");
     if (!key) return null;
     if (element.closest?.("[data-course-card-id]")) return rect(courseMorphRects.source[key]);
-    if (element.closest?.(".class-card-expansion-content")) return rect(courseMorphRects.target[key]);
+    const content = element.closest?.(".class-card-expansion-content");
+    if (content) {
+      onTargetMorphMeasure?.(element, content);
+      return rect(courseMorphRects.target[key]);
+    }
     return null;
   };
   window.HTMLElement.prototype.getBoundingClientRect = function () {
@@ -170,6 +182,14 @@ function installMorphRectMocks() {
 
 function callsFor(selector) {
   return calls.filter((call) => call.element.matches(selector));
+}
+
+function contentGeometryCalls() {
+  return callsFor(".class-card-expansion-content").filter((call) => call.frames.some((frame) => "transform" in frame));
+}
+
+function contentOpacityCalls() {
+  return callsFor(".class-card-expansion-content").filter((call) => call.frames.some((frame) => "opacity" in frame));
 }
 
 const appearanceProperties = [
@@ -239,6 +259,7 @@ test("expansion animates from the matched source into a bounded in-place modal a
     assert.equal(dialog.style.height, "740px");
     const content = dialog.querySelector(".class-card-expansion-content");
     const dialogStyle = window.getComputedStyle(dialog);
+    const borderLeft = Number.parseFloat(dialogStyle.borderLeftWidth) || 0;
     assert.equal(Number.parseFloat(content.style.width), 840 - (Number.parseFloat(dialogStyle.borderLeftWidth) || 0) - (Number.parseFloat(dialogStyle.borderRightWidth) || 0), "detail layout stays at its destination inner width while the shell expands");
     assert.equal(Number.parseFloat(content.style.height), 740 - (Number.parseFloat(dialogStyle.borderTopWidth) || 0) - (Number.parseFloat(dialogStyle.borderBottomWidth) || 0), "detail layout stays at its destination inner height while the shell expands");
     assert.equal(shape.frames.length, 31);
@@ -262,6 +283,17 @@ test("expansion animates from the matched source into a bounded in-place modal a
     assert.equal(shape.options.duration, 420);
     assert.equal(shape.options.easing, "linear");
     assert.equal(shape.options.fill, "both");
+    const detailGeometry = contentGeometryCalls()[0];
+    assert.deepEqual(detailGeometry.frames, createCourseExpansionHorizontalFrames(
+      sourceRect,
+      { left: 18, top: 60, width: 840, height: 740 },
+      18 + borderLeft,
+      18 + borderLeft,
+      borderLeft,
+    ));
+    assert.equal(detailGeometry.options.duration, 420);
+    assert.equal(detailGeometry.options.easing, "linear");
+    assert.equal(detailGeometry.options.fill, "both");
     assert.equal(source.style.visibility, "hidden");
     assert.equal(source.getAttribute("aria-hidden"), "true");
     assert.equal(source.hasAttribute("inert"), true);
@@ -276,9 +308,11 @@ test("expansion animates from the matched source into a bounded in-place modal a
     assert.equal(document.activeElement.textContent, "Close class");
     assert.equal(document.body.style.getPropertyValue("overflow"), "hidden");
 
-    const reveal = callsFor(".class-card-expansion-content")[0];
+    const reveal = contentOpacityCalls()[0];
     const previewFade = callsFor(".class-card-expansion-preview")[0];
     await act(async () => shape.animation.finish());
+    assert.equal(detailGeometry.animation.cancelled, true, "opening handoff cancels the filled position animation");
+    assert.equal(content.style.transform, "", "opening handoff removes the temporary position transform");
     assert.equal(content.style.width, "", "even an opening without morph pairs releases its pinned layout");
     assert.equal(content.style.height, "");
     assert.deepEqual(reveal.frames, [
@@ -434,6 +468,40 @@ test("matched visual, icon, and labels stay in an opaque shared layer through th
   }
 });
 
+test("a heading with an added course-code prefix fades as one changed heading", async () => {
+  const { source, render, cleanup } = setup();
+  setMorphFixture(source);
+  const restoreRects = installMorphRectMocks();
+  const details = (close) => h("div", null,
+    h("div", { "data-course-morph": "visual" }),
+    h("span", { "data-course-morph": "code" }, "CS101"),
+    h("svg", { "data-course-morph": "icon", viewBox: "0 0 24 24", width: 44, height: 44 }, h("path", { d: "M2 3h8v18H2z" })),
+    h("h2", null, "CS101 · ", h("span", { "data-course-morph": "name" }, "World History")),
+    h("button", { onClick: close }, "Close class"),
+  );
+  try {
+    source.focus();
+    await render({ children: details });
+    const shared = document.querySelector(".class-card-expansion-shared-layer");
+    const name = document.querySelector(".class-card-expansion-content [data-course-morph='name']");
+    const previewName = document.querySelector(".class-card-expansion-preview [data-course-morph='name']");
+    assert.equal(shared.querySelector(".class-card-expansion-morph[data-course-morph='name']"), null, "the partial title is not isolated from its heading prefix");
+    assert.equal(name.style.visibility, "", "the complete expanded heading stays in the incoming content layer");
+    assert.equal(previewName.style.visibility, "", "the complete compact title stays in the outgoing preview");
+    for (const key of ["visual", "icon", "code"]) {
+      const wrapper = shared.querySelector(`.class-card-expansion-morph[data-course-morph='${key}']`);
+      assert.ok(wrapper, `${key} remains in the shared layer`);
+      assert.equal(calls.some((call) => call.element === wrapper && call.options.duration === 420), true, `${key} keeps the shared spring animation`);
+    }
+    assert.deepEqual(contentOpacityCalls()[0].frames.map((frame) => frame.opacity), ["0", "0", 1]);
+    assert.equal(document.querySelector(".class-card-expansion-content").style.opacity, "0");
+    assert.equal(document.querySelector(".class-card-expansion-preview").style.opacity, "1");
+  } finally {
+    restoreRects();
+    await cleanup();
+  }
+});
+
 test("a multiline expanded name crossfades as distinct content while common visuals still morph", async () => {
   const { source, render, cleanup } = setup();
   setMorphFixture(source);
@@ -472,7 +540,7 @@ test("a multiline expanded name crossfades as distinct content while common visu
     assert.ok(preview.querySelector("[data-course-morph='name']"), "the compact title remains in the outgoing preview");
     assert.equal(expandedName.style.visibility, "", "the wrapped title remains in the incoming details layer");
     assert.equal(calls.some((call) => call.element.closest?.(".class-card-expansion-morph[data-course-morph='name']")), false);
-    assert.deepEqual(callsFor(".class-card-expansion-content")[0].frames.slice(0, 2), [
+    assert.deepEqual(contentOpacityCalls()[0].frames.slice(0, 2), [
       { offset: 0, opacity: "0" },
       { offset: COURSE_EXPANSION_CONTENT_FADE_IN_START_MS / COURSE_EXPANSION_CONTENT_DURATION_MS, opacity: "0", easing: "ease-out" },
     ]);
@@ -715,7 +783,15 @@ test("a closing resize captures the live appearance and retargets to the source'
     for (const [property, value] of Object.entries(currentAppearance)) dialog.style[property] = value;
     const capturedAppearance = appearanceOf(dialog);
     for (const [property, value] of Object.entries(resizedSourceAppearance)) source.style[property] = value;
-    await act(async () => window.dispatchEvent(new window.Event("resize")));
+    onAnimationCancel = (animation) => {
+      if (animation !== firstExit.animation) return;
+      for (const [property, value] of Object.entries(initialSourceAppearance)) dialog.style[property] = value;
+    };
+    try {
+      await act(async () => window.dispatchEvent(new window.Event("resize")));
+    } finally {
+      onAnimationCancel = null;
+    }
 
     const retargetedExit = callsFor(".class-card-expansion-dialog").at(-1);
     assert.equal(firstExit.animation.cancelled, true);
@@ -731,6 +807,137 @@ test("a closing resize captures the live appearance and retargets to the source'
     assert.equal(source.getAttribute("aria-hidden"), "false");
     assert.equal(source.hasAttribute("inert"), false);
   } finally {
+    await cleanup();
+  }
+});
+
+test("closing during expansion preserves pinned detail dimensions and the captured world-left", async () => {
+  const { source, render, cleanup } = setup();
+  try {
+    source.focus();
+    await render();
+    const dialog = document.querySelector(".class-card-expansion-dialog");
+    const details = dialog.querySelector(".class-card-expansion-content");
+    const borderStyle = window.getComputedStyle(dialog);
+    const borderLeft = Number.parseFloat(borderStyle.borderLeftWidth) || 0;
+    const initialWidth = details.style.width;
+    const initialHeight = details.style.height;
+    const openingGeometry = contentGeometryCalls()[0];
+
+    dialogRectOverride = { left: 100, top: 90, width: 520, height: 460 };
+    detailRectOverride = { left: 620, top: 100, width: 838, height: 738 };
+    await act(async () => [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Close class")).click());
+
+    const closeGeometry = contentGeometryCalls().at(-1);
+    const closeShape = callsFor(".class-card-expansion-dialog").at(-1);
+    assert.equal(openingGeometry.animation.cancelled, true, "the interrupted opening position animation is replaced");
+    assert.equal(details.style.width, initialWidth, "an early close retains the pinned destination width");
+    assert.equal(details.style.height, initialHeight, "an early close retains the pinned destination height");
+    assert.deepEqual(closeGeometry.frames, createCourseExpansionHorizontalFrames(
+      dialogRectOverride,
+      sourceRect,
+      detailRectOverride.left,
+      detailRectOverride.left,
+      borderLeft,
+    ));
+    assert.equal(closeGeometry.frames[0].transform, `translateX(${detailRectOverride.left - dialogRectOverride.left - borderLeft}px)`);
+    assert.equal(closeShape.options.duration, 420);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("closing after opening pins live dimensions and holds detail content at its captured left", async () => {
+  const { source, render, cleanup } = setup();
+  try {
+    source.focus();
+    await render();
+    const dialog = document.querySelector(".class-card-expansion-dialog");
+    const details = dialog.querySelector(".class-card-expansion-content");
+    const openingShape = callsFor(".class-card-expansion-dialog")[0];
+    await act(async () => openingShape.animation.finish());
+    assert.equal(details.style.width, "", "opening handoff releases the pinned width");
+    assert.equal(details.style.height, "", "opening handoff releases the pinned height");
+
+    const borderStyle = window.getComputedStyle(dialog);
+    const borderLeft = Number.parseFloat(borderStyle.borderLeftWidth) || 0;
+    const borderRight = Number.parseFloat(borderStyle.borderRightWidth) || 0;
+    const borderTop = Number.parseFloat(borderStyle.borderTopWidth) || 0;
+    const borderBottom = Number.parseFloat(borderStyle.borderBottomWidth) || 0;
+    dialogRectOverride = { left: 230, top: 70, width: 840, height: 740 };
+    detailRectOverride = { left: 650, top: 71, width: 840 - borderLeft - borderRight, height: 740 - borderTop - borderBottom };
+    await act(async () => [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Close class")).click());
+
+    const closeGeometry = contentGeometryCalls().at(-1);
+    assert.equal(details.style.width, `${840 - borderLeft - borderRight}px`, "closing freezes the current full detail width");
+    assert.equal(details.style.height, `${740 - borderTop - borderBottom}px`, "closing freezes the current full detail height");
+    assert.equal(closeGeometry.frames[0].transform, `translateX(${detailRectOverride.left - dialogRectOverride.left - borderLeft}px)`);
+    assert.equal(closeGeometry.frames.at(-1).transform, `translateX(${detailRectOverride.left - sourceRect.left - borderLeft}px)`);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("opening resize preserves the captured content position with an unchanged shell width", async () => {
+  const { source, render, cleanup } = setup();
+  const originalSourceRect = sourceRect;
+  try {
+    source.focus();
+    await render();
+    const initialShape = callsFor(".class-card-expansion-dialog")[0];
+    const initialGeometry = contentGeometryCalls()[0];
+    dialogRectOverride = { left: 100, top: 80, width: 840, height: 740 };
+    detailRectOverride = { left: 150, top: 81, width: 838, height: 738 };
+    sourceRect = { left: 540, top: 500, width: 260, height: 200 };
+    await act(async () => window.dispatchEvent(new window.Event("resize")));
+
+    const retargetedShape = callsFor(".class-card-expansion-dialog").at(-1);
+    const retargetedGeometry = contentGeometryCalls().at(-1);
+    const borderLeft = Number.parseFloat(window.getComputedStyle(document.querySelector(".class-card-expansion-dialog")).borderLeftWidth) || 0;
+    assert.equal(initialShape.animation.cancelled, true);
+    assert.equal(initialGeometry.animation.cancelled, true);
+    assert.equal(retargetedShape.frames[0].width, "840px");
+    assert.equal(retargetedShape.frames.at(-1).width, "840px", "the retarget keeps the expanded width unchanged");
+    assert.equal(retargetedGeometry.frames[0].transform, `translateX(${detailRectOverride.left - dialogRectOverride.left - borderLeft}px)`, "the first frame matches the captured live content position");
+    assert.equal(retargetedGeometry.frames.at(-1).transform, "translateX(0px)");
+  } finally {
+    sourceRect = originalSourceRect;
+    await cleanup();
+  }
+});
+
+test("opening resize measures matched targets after clearing the previous detail translation", async () => {
+  const { source, render, cleanup } = setup();
+  const originalSourceRect = sourceRect;
+  setMorphFixture(source);
+  const restoreRects = installMorphRectMocks();
+  const renderDetails = (close) => h("div", null,
+    h("div", { "data-course-morph": "visual" }),
+    h("span", { "data-course-morph": "watermark" }, "CS"),
+    h("span", { "data-course-morph": "code" }, "CS101"),
+    h("svg", { "data-course-morph": "icon", viewBox: "0 0 24 24", width: 44, height: 44 }, h("path", { d: "M2 3h8v18H2z" })),
+    h("h2", { "data-course-morph": "name" }, "World History"),
+    h("button", { onClick: close }, "Close class"),
+  );
+  try {
+    source.focus();
+    await render({ children: renderDetails });
+    const content = document.querySelector(".class-card-expansion-content");
+    assert.notEqual(content.style.transform, "translateX(0px)", "the initial source-to-destination offset is active before resize");
+    const measuredTransforms = [];
+    onTargetMorphMeasure = (_target, content) => measuredTransforms.push(content.style.transform);
+    dialogRectOverride = { left: 100, top: 80, width: 840, height: 740 };
+    detailRectOverride = { left: 150, top: 81, width: 838, height: 738 };
+    sourceRect = { left: 540, top: 500, width: 260, height: 200 };
+
+    await act(async () => window.dispatchEvent(new window.Event("resize")));
+
+    assert.ok(measuredTransforms.length > 0, "resize measures expanded targets for the new shared morphs");
+    assert.ok(measuredTransforms.every((transform) => transform === "translateX(0px)"), "target bounds use the neutral destination layout");
+  } finally {
+    onTargetMorphMeasure = null;
+    sourceRect = originalSourceRect;
+    restoreRects();
     await cleanup();
   }
 });
@@ -774,7 +981,7 @@ test("close reverses from the live dialog rectangle, restores exact source style
       ...appearanceOf(source),
     });
     const details = document.querySelector(".class-card-expansion-content");
-    const fade = callsFor(".class-card-expansion-content").at(-1);
+    const fade = contentOpacityCalls().at(-1);
     const previewFade = callsFor(".class-card-expansion-preview").at(-1);
     assert.equal(fade.options.duration, COURSE_EXPANSION_CONTENT_DURATION_MS);
     assert.equal(fade.options.easing, "linear");
@@ -814,7 +1021,7 @@ test("closing during the reveal continues from the visible content instead of fl
     preview.style.opacity = "0.55";
     preview.style.filter = "blur(3px)";
     await act(async () => document.querySelector(".test-class-details button").click());
-    const contentFade = callsFor(".class-card-expansion-content").at(-1);
+    const contentFade = contentOpacityCalls().at(-1);
     const previewFade = callsFor(".class-card-expansion-preview").at(-1);
     assert.deepEqual(contentFade.frames[0], { offset: 0, opacity: "0.45", easing: "ease-out" });
     assert.deepEqual(contentFade.frames[1], { offset: COURSE_EXPANSION_CONTENT_FADE_OUT_END_MS / COURSE_EXPANSION_CONTENT_DURATION_MS, opacity: 0 });

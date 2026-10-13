@@ -42,3 +42,20 @@ export function createCourseExpansionSettleFrames(from: CourseExpansionRect, to:
     transformOrigin: "top left",
   }));
 }
+
+export function createCourseExpansionHorizontalFrames(
+  parentFrom: CourseExpansionRect,
+  parentTo: CourseExpansionRect,
+  detailWorldLeftFrom: number,
+  detailWorldLeftTo: number,
+  borderLeft: number,
+): Keyframe[] {
+  return createCourseExpansionProgressFrames().map(({ offset, progress }) => {
+    const detailWorldLeft = detailWorldLeftFrom + (detailWorldLeftTo - detailWorldLeftFrom) * progress;
+    const parentLeft = parentFrom.left + (parentTo.left - parentFrom.left) * progress;
+    return {
+      offset,
+      transform: `translateX(${detailWorldLeft - parentLeft - borderLeft}px)`,
+    };
+  });
+}

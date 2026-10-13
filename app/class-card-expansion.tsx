@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
+  createCourseExpansionHorizontalFrames,
   createCourseExpansionProgressFrames,
   createCourseExpansionSettleFrames,
   COURSE_EXPANSION_CONTENT_DURATION_MS,
@@ -58,6 +59,7 @@ type MorphPair = {
   backgroundOverlayRole: "source" | "target" | null;
   backgroundOpacity: number | null;
 };
+type DetailHorizontalMotion = { worldLeftFrom: number; worldLeftTo: number };
 
 const focusableSelector = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex]:not([tabindex='-1'])";
 
@@ -237,6 +239,10 @@ function collectMorphPairs(source: HTMLElement, preview: HTMLElement, content: H
     if (!key || !compact || (key !== "watermark" && !isInsideClip(target, content))) return [];
     if (key === "instructor" || key === "credits") return [];
     if (key === "name" && renderedTextLineCount(target) > renderedTextLineCount(compact)) return [];
+    if (key === "name") {
+      const heading = target.closest("h1, h2, h3, h4, h5, h6");
+      if (heading && heading.textContent?.trim() !== target.textContent?.trim()) return [];
+    }
     const sourceText = compact.textContent?.trim() ?? "";
     const targetText = target.textContent?.trim() ?? "";
     if (key !== "visual" && key !== "icon" && sourceText !== targetText) return [];
@@ -524,6 +530,8 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     let sourceSnapshot: SourceSnapshot | null = null;
     let bodyOverflow: SavedProperty | null = null;
     let shapeAnimation: Animation | null = null;
+    let detailGeometryAnimation: Animation | null = null;
+    let detailGeometryFinalTransform = "translateX(0px)";
     const morphAnimations = new Set<Animation>();
     const imageHandoffCleanups = new Set<() => void>();
     let morphPairs: MorphPair[] = [];
@@ -861,8 +869,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     };
 
     const finishOpeningMorph = () => {
-      detailContent.style.removeProperty("width");
-      detailContent.style.removeProperty("height");
+      clearDetailGeometry("translateX(0px)");
       if (!openingMorphPending) return;
       openingMorphPending = false;
       cancelMorphAnimations();
@@ -889,6 +896,65 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       animation.cancel();
     };
 
+    const cancelDetailGeometry = (finalTransform: string) => {
+      detailContent.style.transform = finalTransform;
+      detailGeometryFinalTransform = finalTransform;
+      const animation = detailGeometryAnimation;
+      detailGeometryAnimation = null;
+      if (!animation) return;
+      animation.onfinish = null;
+      animation.oncancel = null;
+      animation.cancel();
+    };
+
+    const clearDetailGeometry = (finalTransform = detailGeometryFinalTransform) => {
+      cancelDetailGeometry(finalTransform);
+      detailContent.style.removeProperty("transform");
+      detailContent.style.removeProperty("width");
+      detailContent.style.removeProperty("height");
+    };
+
+    const animateDetailGeometry = (
+      from: WidgetMotionRect,
+      to: WidgetMotionRect,
+      motion: DetailHorizontalMotion,
+    ) => {
+      const borderLeft = dialogBorder().left;
+      const frames = createCourseExpansionHorizontalFrames(
+        from,
+        to,
+        motion.worldLeftFrom,
+        motion.worldLeftTo,
+        borderLeft,
+      );
+      const startTransform = String(frames[0].transform);
+      const finalTransform = String(frames.at(-1)?.transform ?? "translateX(0px)");
+      // Keep the captured world position when cancelling a filled animation for a retarget.
+      cancelDetailGeometry(startTransform);
+      detailGeometryFinalTransform = finalTransform;
+      if (typeof detailContent.animate !== "function") {
+        detailContent.style.transform = finalTransform;
+        return;
+      }
+      const animation = detailContent.animate(frames, {
+        duration: COURSE_EXPANSION_MOTION_DURATION_MS,
+        easing: COURSE_EXPANSION_MOTION_EASING,
+        fill: "both",
+      });
+      detailGeometryAnimation = animation;
+      animation.onfinish = () => {
+        if (detailGeometryAnimation !== animation) return;
+        detailGeometryAnimation = null;
+        detailContent.style.transform = finalTransform;
+        animation.onfinish = null;
+        animation.oncancel = null;
+        animation.cancel();
+      };
+      animation.oncancel = () => {
+        if (detailGeometryAnimation === animation) detailGeometryAnimation = null;
+      };
+    };
+
     const cancelContent = () => {
       for (const animation of contentAnimations) {
         animation.onfinish = null;
@@ -904,15 +970,18 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       onFinish?: () => void,
       fromAppearance?: VisualAppearance,
       toAppearance: VisualAppearance = expandedAppearance,
+      detailMotion?: DetailHorizontalMotion,
     ) => {
       const liveAppearance = fromAppearance ?? readVisualAppearance(expansionDialog);
       cancelShape();
       applyRect(expansionDialog, to);
       applyVisualAppearance(expansionDialog, toAppearance);
       if (!canAnimate || typeof expansionDialog.animate !== "function") {
+        clearDetailGeometry("translateX(0px)");
         onFinish?.();
         return;
       }
+      if (detailMotion) animateDetailGeometry(from, to, detailMotion);
       const frames = createCourseExpansionSettleFrames(from, to);
       Object.assign(frames[0], liveAppearance);
       Object.assign(frames.at(-1)!, toAppearance);
@@ -1048,6 +1117,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       released = true;
       for (const cleanup of [...imageHandoffCleanups]) cleanup();
       cancelShape();
+      clearDetailGeometry();
       cancelMorphAnimations();
       cancelContent();
       window.removeEventListener("resize", handleResize);
@@ -1076,6 +1146,9 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       closing = true;
       for (const cleanup of [...imageHandoffCleanups]) cleanup();
       const from = expansionDialog.getBoundingClientRect();
+      const detailRect = detailContent.getBoundingClientRect();
+      const detailWorldLeft = detailRect.left;
+      if (!detailContent.style.width || !detailContent.style.height) pinDetailLayout(from);
       const to = currentReturnRect();
       if (!to || !canAnimate || typeof expansionDialog.animate !== "function") {
         finishClose();
@@ -1113,7 +1186,10 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
         detailContent.style.filter = "none";
       });
       animateMorphs("closing", from, to, liveMorphRects, liveMorphStyles);
-      animateShape(from, to, finishClose, undefined, sourceAppearance);
+      animateShape(from, to, finishClose, undefined, sourceAppearance, {
+        worldLeftFrom: detailWorldLeft,
+        worldLeftTo: detailWorldLeft,
+      });
     }
 
     function currentExpansionRect(): WidgetMotionRect {
@@ -1139,12 +1215,14 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       if (released) return;
       sidebarRight = getSidebarRight();
       const from = expansionDialog.getBoundingClientRect();
+      const detailWorldLeft = detailContent.getBoundingClientRect().left;
       if (closing) {
         const to = currentReturnRect();
         if (!to || !canAnimate) {
           finishClose();
           return;
         }
+        const liveAppearance = readVisualAppearance(expansionDialog);
         const sourceAppearance = sourceRef.current?.isConnected
           ? readVisualAppearance(sourceRef.current)
           : expandedAppearance;
@@ -1152,8 +1230,13 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
         const liveMorphStyles = captureMorphStyles();
         preserveMorphState(from, liveMorphRects, liveMorphStyles);
         cancelMorphAnimations();
+        cancelShape();
+        cancelDetailGeometry("translateX(0px)");
         animateMorphs("closing", from, to, liveMorphRects, liveMorphStyles);
-        animateShape(from, to, finishClose, undefined, sourceAppearance);
+        animateShape(from, to, finishClose, liveAppearance, sourceAppearance, {
+          worldLeftFrom: detailWorldLeft,
+          worldLeftTo: detailWorldLeft,
+        });
         return;
       }
       const to = currentExpansionRect();
@@ -1170,11 +1253,15 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
         return;
       }
       cancelShape();
+      cancelDetailGeometry("translateX(0px)");
       applyRect(expansionDialog, to);
       applyVisualAppearance(expansionDialog, expandedAppearance);
       if (detailContent.style.width) pinDetailLayout(to);
       if (openingMorphPending) animateMorphs("opening", from, to, liveMorphRects, liveMorphStyles);
-      animateShape(from, to, finishOpeningMorph, liveAppearance);
+      animateShape(from, to, finishOpeningMorph, liveAppearance, expandedAppearance, {
+        worldLeftFrom: detailWorldLeft,
+        worldLeftTo: to.left + dialogBorder().left,
+      });
     }
 
     closeRef.current = requestClose;
@@ -1188,7 +1275,14 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     }
     if (canAnimate && anchor) {
       if (source && sourceRect && openingMorphPending) animateMorphs("opening", sourceRect, destination);
-      animateShape(startRect, destination, finishOpeningMorph, sourceAppearance ?? undefined);
+      const measuredDetailRect = detailContent.getBoundingClientRect();
+      const detailWorldLeft = hasArea(measuredDetailRect)
+        ? measuredDetailRect.left
+        : destination.left + dialogBorder().left;
+      animateShape(startRect, destination, finishOpeningMorph, sourceAppearance ?? undefined, expandedAppearance, {
+        worldLeftFrom: detailWorldLeft,
+        worldLeftTo: destination.left + dialogBorder().left,
+      });
     } else {
       applyRect(expansionDialog, destination);
       applyVisualAppearance(expansionDialog, expandedAppearance);
