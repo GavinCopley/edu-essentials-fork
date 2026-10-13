@@ -237,6 +237,10 @@ test("expansion animates from the matched source into a bounded in-place modal a
     assert.equal(dialog.style.top, "60px");
     assert.equal(dialog.style.width, "840px");
     assert.equal(dialog.style.height, "740px");
+    const content = dialog.querySelector(".class-card-expansion-content");
+    const dialogStyle = window.getComputedStyle(dialog);
+    assert.equal(Number.parseFloat(content.style.width), 840 - (Number.parseFloat(dialogStyle.borderLeftWidth) || 0) - (Number.parseFloat(dialogStyle.borderRightWidth) || 0), "detail layout stays at its destination inner width while the shell expands");
+    assert.equal(Number.parseFloat(content.style.height), 740 - (Number.parseFloat(dialogStyle.borderTopWidth) || 0) - (Number.parseFloat(dialogStyle.borderBottomWidth) || 0), "detail layout stays at its destination inner height while the shell expands");
     assert.equal(shape.frames.length, 31);
     assert.deepEqual(geometryFrames(shape.frames), createCourseExpansionSettleFrames(sourceRect, { left: 18, top: 60, width: 840, height: 740 }));
     assert.deepEqual(shape.frames[0], {
@@ -274,6 +278,9 @@ test("expansion animates from the matched source into a bounded in-place modal a
 
     const reveal = callsFor(".class-card-expansion-content")[0];
     const previewFade = callsFor(".class-card-expansion-preview")[0];
+    await act(async () => shape.animation.finish());
+    assert.equal(content.style.width, "", "even an opening without morph pairs releases its pinned layout");
+    assert.equal(content.style.height, "");
     assert.deepEqual(reveal.frames, [
       { offset: 0, opacity: "0" },
       { offset: COURSE_EXPANSION_CONTENT_FADE_IN_START_MS / COURSE_EXPANSION_CONTENT_DURATION_MS, opacity: "0", easing: "ease-out" },
@@ -361,7 +368,8 @@ test("matched visual, icon, and labels stay in an opaque shared layer through th
     const shared = document.querySelector(".class-card-expansion-shared-layer");
     const wrappers = [...shared.querySelectorAll(".class-card-expansion-morph")];
     const keys = wrappers.map((wrapper) => wrapper.dataset.courseMorph).sort();
-    assert.deepEqual(keys, ["code", "credits", "icon", "instructor", "name", "visual", "watermark"]);
+    assert.deepEqual(keys, ["code", "icon", "name", "visual", "watermark"]);
+    assert.equal(shared.querySelector(".class-card-expansion-morph[data-course-morph='watermark']").style.zIndex, "0", "decorative initials stay below the content and close button");
     assert.equal(shared.querySelectorAll("[data-course-morph='visual'] img").length, 1);
     assert.equal(shared.querySelector("[data-course-background-overlay]"), null, "identical gradients do not get an unnecessary overlay");
     const imageClone = shared.querySelector(".class-card-expansion-morph[data-course-morph='visual'] img");
@@ -378,7 +386,7 @@ test("matched visual, icon, and labels stay in an opaque shared layer through th
     assert.equal(shared.closest(".class-card-expansion-content"), null);
     assert.equal(shared.style.opacity, "");
     for (const target of document.querySelectorAll(".class-card-expansion-content [data-course-morph]")) {
-      assert.equal(target.style.visibility, "hidden", `${target.dataset.courseMorph} is not duplicated below its overlay`);
+      assert.equal(target.style.visibility, ["instructor", "credits"].includes(target.dataset.courseMorph) ? "" : "hidden", `${target.dataset.courseMorph} either crossfades in its own layout or uses a shared overlay`);
     }
 
     const visual = wrappers.find((wrapper) => wrapper.dataset.courseMorph === "visual");
@@ -410,10 +418,10 @@ test("matched visual, icon, and labels stay in an opaque shared layer through th
     const closingWrappers = [...shared.querySelectorAll(".class-card-expansion-morph")];
     assert.deepEqual(closingWrappers.map((wrapper) => wrapper.dataset.courseMorph).sort(), keys);
     for (const target of document.querySelectorAll(".class-card-expansion-content [data-course-morph]")) {
-      assert.equal(target.style.visibility, "hidden", `${target.dataset.courseMorph} stays hidden while its closing clone is visible`);
+      assert.equal(target.style.visibility, ["instructor", "credits"].includes(target.dataset.courseMorph) ? "" : "hidden", `${target.dataset.courseMorph} does not gain a moving duplicate on close`);
     }
     for (const preview of document.querySelectorAll(".class-card-expansion-preview [data-course-morph]")) {
-      assert.equal(preview.style.visibility, "hidden", `${preview.dataset.courseMorph} stays hidden while the shared clone returns`);
+      assert.equal(preview.style.visibility, ["instructor", "credits"].includes(preview.dataset.courseMorph) ? "" : "hidden", `${preview.dataset.courseMorph} either returns with the compact layout or its shared clone`);
     }
     const closeShape = callsFor(".class-card-expansion-dialog").at(-1);
     await act(async () => closeShape.animation.finish());
@@ -1003,6 +1011,13 @@ test("resize reflows the expansion around the source's latest center", async () 
     assert.equal(left, latestCenter - Number.parseFloat(dialog.style.width) / 2);
     assert.equal(callsFor(".class-card-expansion-dialog").length, 2);
     assert.equal(callsFor(".class-card-expansion-dialog").at(-1).frames.at(-1).transform, "translate(0px, 0px)");
+    const content = dialog.querySelector(".class-card-expansion-content");
+    const dialogStyle = window.getComputedStyle(dialog);
+    assert.equal(Number.parseFloat(content.style.width), Number.parseFloat(dialog.style.width) - (Number.parseFloat(dialogStyle.borderLeftWidth) || 0) - (Number.parseFloat(dialogStyle.borderRightWidth) || 0));
+    assert.equal(Number.parseFloat(content.style.height), Number.parseFloat(dialog.style.height) - (Number.parseFloat(dialogStyle.borderTopWidth) || 0) - (Number.parseFloat(dialogStyle.borderBottomWidth) || 0));
+    await act(async () => callsFor(".class-card-expansion-dialog").at(-1).animation.finish());
+    assert.equal(content.style.width, "");
+    assert.equal(content.style.height, "");
   } finally {
     await cleanup();
     sourceRect = { left: 30, top: 600, width: 260, height: 200 };

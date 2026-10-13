@@ -235,10 +235,11 @@ function collectMorphPairs(source: HTMLElement, preview: HTMLElement, content: H
     const key = target.getAttribute("data-course-morph");
     const compact = key ? sourceNodes.get(key) : null;
     if (!key || !compact || (key !== "watermark" && !isInsideClip(target, content))) return [];
+    if (key === "instructor" || key === "credits") return [];
     if (key === "name" && renderedTextLineCount(target) > renderedTextLineCount(compact)) return [];
     const sourceText = compact.textContent?.trim() ?? "";
     const targetText = target.textContent?.trim() ?? "";
-    if ((key === "instructor" && !sourceText) || (key !== "visual" && key !== "icon" && sourceText !== targetText)) return [];
+    if (key !== "visual" && key !== "icon" && sourceText !== targetText) return [];
     const sourceClone = previewNodes.get(key) ?? null;
     return [{
       key,
@@ -332,7 +333,7 @@ function createMorphWrapper(pair: MorphPair, direction: "opening" | "closing", l
   wrapper.className = "class-card-expansion-morph";
   wrapper.dataset.courseMorph = pair.key;
   wrapper.setAttribute("aria-hidden", "true");
-  wrapper.style.zIndex = ["visual"].includes(pair.key) ? "0" : "2";
+  wrapper.style.zIndex = ["visual", "watermark"].includes(pair.key) ? "0" : "2";
   wrapper.appendChild(clone);
   layer.appendChild(wrapper);
   pair.wrapper = wrapper;
@@ -549,6 +550,15 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     const canAnimate = !reducedMotion() && typeof expansionDialog.animate === "function";
     applyRect(expansionDialog, destination);
     applyVisualAppearance(expansionDialog, expandedAppearance);
+
+    const pinDetailLayout = (rect: WidgetMotionRect) => {
+      const style = window.getComputedStyle(expansionDialog);
+      const horizontalBorder = (Number.parseFloat(style.borderLeftWidth) || 0) + (Number.parseFloat(style.borderRightWidth) || 0);
+      const verticalBorder = (Number.parseFloat(style.borderTopWidth) || 0) + (Number.parseFloat(style.borderBottomWidth) || 0);
+      detailContent.style.width = `${Math.max(1, rect.width - horizontalBorder)}px`;
+      detailContent.style.height = `${Math.max(1, rect.height - verticalBorder)}px`;
+    };
+    if (anchor && canAnimate) pinDetailLayout(destination);
 
     if (source) {
       sourceSnapshot = {
@@ -851,6 +861,8 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     };
 
     const finishOpeningMorph = () => {
+      detailContent.style.removeProperty("width");
+      detailContent.style.removeProperty("height");
       if (!openingMorphPending) return;
       openingMorphPending = false;
       cancelMorphAnimations();
@@ -1160,8 +1172,9 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       cancelShape();
       applyRect(expansionDialog, to);
       applyVisualAppearance(expansionDialog, expandedAppearance);
+      if (detailContent.style.width) pinDetailLayout(to);
       if (openingMorphPending) animateMorphs("opening", from, to, liveMorphRects, liveMorphStyles);
-      animateShape(from, to, openingMorphPending ? finishOpeningMorph : undefined, liveAppearance);
+      animateShape(from, to, finishOpeningMorph, liveAppearance);
     }
 
     closeRef.current = requestClose;
@@ -1175,7 +1188,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     }
     if (canAnimate && anchor) {
       if (source && sourceRect && openingMorphPending) animateMorphs("opening", sourceRect, destination);
-      animateShape(startRect, destination, openingMorphPending ? finishOpeningMorph : undefined, sourceAppearance ?? undefined);
+      animateShape(startRect, destination, finishOpeningMorph, sourceAppearance ?? undefined);
     } else {
       applyRect(expansionDialog, destination);
       applyVisualAppearance(expansionDialog, expandedAppearance);

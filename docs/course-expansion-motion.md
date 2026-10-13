@@ -23,6 +23,8 @@ Text needs a stricter size boundary than the shell: overshooting an intrinsic ti
 
 Keep the current interruptible Web Animations implementation. Native View Transitions are a useful visual reference, but switching engines would change interruption behavior and broaden this fix. No framework upgrade or animation dependency is required.
 
+Keep expanded content laid out at the destination's inner dimensions while the opening shell animates, then release those dimensions at handoff. This prevents intermediate flex reflow from moving the live labels away from their measured morph endpoints. Instructor and credit labels crossfade with their respective layouts: their compact inline row and expanded sections are different content arrangements, not shared spatial slots. Decorative watermark clones stay with the background artwork below the detail-content stacking context, including the close button.
+
 ## Verification
 
 Inspect rendered opening and closing frames on desktop and mobile, including long titles, portrait/landscape artwork, gradient-only headers, early dismissal, delayed image decoding, resize, and reduced motion. Confirm a continuous image, aligned endpoints, no duplicated shared content, and no corner/shadow snap. Unit tests support these checks but cannot establish perceived smoothness alone.
